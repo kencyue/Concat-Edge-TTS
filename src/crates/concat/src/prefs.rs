@@ -132,6 +132,8 @@ pub struct Preferences {
     /// kept from a title by the Text panel's "Use for new titles"; its
     /// words are empty. None starts titles in the bundled face.
     pub title_style: Option<concat_project::model::TextStyle>,
+    /// One-time Traditional Chinese subtitle setup for the personal Android build.
+    pub zh_caption_setup_done: bool,
     /// What the log records, by the name concat_host::logs reads: `info`
     /// unless the Settings sheet was asked for more or less. CONCAT_LOG in
     /// the environment overrides it for one run.
