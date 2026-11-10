@@ -54,6 +54,7 @@ export component TextPanel inherits VerticalLayout {
     callback import-font();
     /// Keep this title's look for new titles and captions.
     callback set-default();
+    callback apply-font-to-track();
 
     /// Several titles selected together: every knob writes to all of them
     /// and the words, each title's own, are not offered.
@@ -403,6 +404,15 @@ export component TextPanel inherits VerticalLayout {
                 label: I18n.t("textPanel.useForNewTitles");
                 ghost: true;
                 clicked => { root.set-default(); }
+            }
+        }
+        Row {
+            label: "";
+            label-width: root.label-w;
+            Button {
+                label: "同軌字幕全部套用此字型";
+                ghost: true;
+                clicked => { root.apply-font-to-track(); }
             }
         }
 
