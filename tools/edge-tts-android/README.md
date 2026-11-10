@@ -40,3 +40,7 @@ ffprobe -v error test.wav
 ```
 
 This is a personal modification, not an official Concat release. Original project license: AGPL-3.0-or-later.
+
+## Reliability update (2026-11-11)
+
+Microsoft Edge TTS may intermittently return NoAudioReceived for particular voices. The companion now retries the requested voice once before falling back. For YunJhe (Taiwan Mandarin male), the fallback is Yunyang (mainland Mandarin male), so the accent may differ. Other voices fall back to another zh-TW female voice. The WAV response carries X-TTS-Voice-Actual and X-TTS-Fallback diagnostic headers; Concat currently ignores these headers, so consult the Termux bridge log to see which voice was actually used.

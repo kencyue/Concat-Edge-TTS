@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Local-only Edge TTS -> PCM WAV bridge for Concat's Android native audio importer.
+"""Loopback-only Edge TTS -> PCM WAV bridge for Concat Android.
 
-This service receives text from the patched Concat APK on 127.0.0.1:18729.
-It sends text (NOT video) to Microsoft's online Edge TTS endpoint via edge-tts.
-No API key; subject to Microsoft's endpoint availability and service terms.
+Only narration text is sent to Microsoft's online Edge TTS service.
+Videos, original audio and projects never leave this phone.
 """
 import asyncio
 import json
@@ -14,6 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import edge_tts
+from edge_tts.exceptions import NoAudioReceived
 
 HOST = "127.0.0.1"
 PORT = 18729
@@ -22,28 +22,72 @@ VOICES = {
     3001: "zh-TW-HsiaoChenNeural",
     3002: "zh-TW-HsiaoYuNeural",
 }
+# Microsoft sometimes returns no audio for a single voice. Preserve the
+# requested gender where possible. Yunyang is male Mandarin (zh-CN accent).
+FALLBACKS = {
+    3000: "zh-CN-YunyangNeural",
+    3001: "zh-TW-HsiaoYuNeural",
+    3002: "zh-TW-HsiaoChenNeural",
+}
 MAX_REQUEST = 30_000
 MAX_CHARS = 3_900
+
+
+async def get_audio(text, requested_voice, voice_id, rate, folder):
+    """Retry a NoAudioReceived once, then use a disclosed fallback."""
+    attempted = [requested_voice, requested_voice, FALLBACKS[voice_id]]
+    for n, voice in enumerate(attempted):
+        output = Path(folder) / f"attempt{n}.mp3"
+        try:
+            await asyncio.wait_for(
+                edge_tts.Communicate(text, voice, rate=rate).save(str(output)),
+                timeout=45.0,
+            )
+            if output.stat().st_size == 0:
+                raise NoAudioReceived("Audio file is empty")
+            if n > 0:
+                logging.warning(
+                    "Microsoft Edge TTS fallback: requested=%s actual=%s attempt=%s",
+                    requested_voice, voice, n + 1,
+                )
+            return output, voice
+        except (NoAudioReceived, asyncio.TimeoutError) as err:
+            logging.warning(
+                "Edge TTS unavailable for voice=%s attempt=%s: %s",
+                voice, n + 1, err,
+            )
+            if n == len(attempted) - 1:
+                raise
+            await asyncio.sleep(0.5 if n == 0 else 0.8)
 
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.0"
 
-    def respond(self, status, body, content_type="text/plain; charset=utf-8"):
+    def respond(self, status, body, content_type="text/plain; charset=utf-8", extra_headers=None):
         if isinstance(body, str):
             body = body.encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        for key, value in (extra_headers or {}).items():
+            self.send_header(key, value)
         self.end_headers()
         self.wfile.write(body)
 
     def do_GET(self):
         if self.path == "/health":
-            self.respond(200, json.dumps({"status": "ok", "provider": "Microsoft Edge TTS",
-                                          "voices": VOICES}, ensure_ascii=False),
-                         "application/json; charset=utf-8")
+            self.respond(
+                200,
+                json.dumps(
+                    {"status": "ok", "provider": "Microsoft Edge TTS",
+                     "voices": VOICES, "fallbacks": FALLBACKS,
+                     "no_audio_retry": True},
+                    ensure_ascii=False,
+                ),
+                "application/json; charset=utf-8",
+            )
         else:
             self.respond(404, "Not found")
 
@@ -56,8 +100,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond(413, "Invalid request size")
             payload = json.loads(self.rfile.read(length))
             voice_id = int(payload.get("voice", 3000))
-            voice = VOICES.get(voice_id)
-            if voice is None:
+            requested_voice = VOICES.get(voice_id)
+            if requested_voice is None:
                 return self.respond(400, "Unsupported voice")
             txt = str(payload["text"]).strip()
             if not txt or len(txt) > MAX_CHARS:
@@ -68,17 +112,28 @@ class Handler(BaseHTTPRequestHandler):
             rate = f"{round((speed - 1.0) * 100):+d}%"
 
             with tempfile.TemporaryDirectory(prefix="concat-edge-") as folder:
-                mp3 = Path(folder) / "speech.mp3"
+                mp3, actual_voice = asyncio.run(
+                    get_audio(txt, requested_voice, voice_id, rate, folder)
+                )
                 wav = Path(folder) / "speech.wav"
-                asyncio.run(edge_tts.Communicate(txt, voice, rate=rate).save(str(mp3)))
                 subprocess.run(
                     ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
                      "-y", "-i", str(mp3), "-ar", "24000", "-ac", "1",
                      "-c:a", "pcm_s16le", str(wav)],
-                    check=True, timeout=60, capture_output=True
+                    check=True, timeout=60, capture_output=True,
                 )
-                self.respond(200, wav.read_bytes(), "audio/wav")
-            logging.info("Synthesized %s chars, voice %s, speed %s", len(txt), voice, speed)
+                self.respond(
+                    200, wav.read_bytes(), "audio/wav",
+                    extra_headers={
+                        "X-TTS-Voice-Requested": requested_voice,
+                        "X-TTS-Voice-Actual": actual_voice,
+                        "X-TTS-Fallback": str(actual_voice != requested_voice).lower(),
+                    },
+                )
+            logging.info(
+                "Synthesized %s characters: requested=%s actual=%s speed=%s",
+                len(txt), requested_voice, actual_voice, speed,
+            )
         except Exception as exc:
             logging.exception("Edge TTS request failed")
             self.respond(502, "Edge TTS failed: " + str(exc)[:500])
@@ -88,6 +143,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
