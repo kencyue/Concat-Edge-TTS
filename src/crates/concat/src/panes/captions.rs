@@ -840,7 +840,7 @@ fn caption_clip(
         },
         None => TextStyle {
             content: text,
-            font_family: "Hanken Grotesk".to_owned(),
+            font_family: if cfg!(target_os = "android") { "Noto Sans TC" } else { "Hanken Grotesk" }.to_owned(),
             font_size,
             font_weight: 600.0,
             ..TextStyle::default()
