@@ -12,7 +12,7 @@ impl Studio {
     /// and the app's installed ones, once each, in alphabetical order; then
     /// the system's, likewise, less any already listed.
     pub fn font_families(&self) -> Vec<String> {
-        let mut out = vec![concat_text::BUNDLED_FAMILY.to_owned()];
+        let mut out = vec![concat_text::BUNDLED_FAMILY.to_owned(), "Noto Sans TC".to_owned()];
         let mut own: Vec<String> = self
             .installed_fonts
             .iter()
@@ -276,6 +276,43 @@ impl Studio {
         self.prefs.title_style = Some(style);
         self.prefs.save(&self.host.dirs);
         self.notify(&t("textPanel.newTitlesUseThisStyle"), false);
+    }
+
+    /// Apply this font to all text/caption clips on the selected lane.
+    /// Captions and titles share ClipKind::Text; limiting by track avoids
+    /// accidentally restyling unrelated titles on other lanes.
+    pub fn apply_font_to_track(&mut self) {
+        self.flush_commit();
+        let Some(id) = self.sole_selection() else { return; };
+        let Some(clip) = self.clip(&id).filter(|clip| clip.kind == model::ClipKind::Text) else {
+            return;
+        };
+        let track = clip.track_id.clone();
+        let Some(family) = clip.text.as_ref().map(|style| style.font_family.clone()) else {
+            return;
+        };
+        let commands: Vec<Command> = self.timeline().clips.iter()
+            .filter(|clip| clip.track_id == track && clip.kind == model::ClipKind::Text)
+            .filter_map(|clip| {
+                let mut style = clip.text.as_ref()?.clone();
+                if style.font_family == family { return None; }
+                style.font_family = family.clone();
+                Some(Command::UpdateClip {
+                    clip_id: clip.id.clone(),
+                    patch: ClipPatch {
+                        text: Some(Some(style)),
+                        ..ClipPatch::default()
+                    }
+                })
+            })
+            .collect();
+        let count = commands.len();
+        if count == 0 {
+            self.notify("本字幕軌道的字型已一致", false);
+            return;
+        }
+        self.apply(Command::Batch { commands });
+        self.notify(&format!("已批次設定 {count} 段字幕／文字為 {family}（可復原）"), false);
     }
 
     /// The inspector's gesture is over: what differs between the echo and
