@@ -291,6 +291,11 @@ impl SettingsPane {
                 Self::apply_download_source(studio);
                 self.apply_server(studio);
                 self.refresh(studio);
+                // On Android, fetch multilingual Base on first launch if needed.
+                // It is kept in Concat's model directory, not bundled into APK.
+                if cfg!(target_os = "android") && studio.prefs.transcriber_model.as_deref() == Some("base") {
+                    self.download("base", studio);
+                }
             }
             SettingsMsg::Open => {
                 self.refresh(studio);
