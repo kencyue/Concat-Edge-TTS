@@ -49,7 +49,7 @@ pub fn synthesize(text: &str, output: &Path, speed: f32, voice: i32) -> Result<(
             error.chars().take(300).collect::<String>()
         ));
     }
-    if !payload.starts_with(b"RIFF") || payload.get(8..12) != Some(b"WAVE") {
+    if !payload.starts_with(b"RIFF") || payload.get(8..12) != Some(&b"WAVE"[..]) {
         return Err("Microsoft TTS helper did not return a WAV file".to_owned());
     }
     std::fs::write(output, payload)

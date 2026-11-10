@@ -1,0 +1,87 @@
+name: Build Concat Edge TTS Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [edge-tts]
+    paths:
+      - ".github/workflows/edge-android.yml"
+      - "src/**"
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      GGML_NATIVE: "OFF"
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain
+        run: |
+          CHANNEL=$(sed -n 's/^channel = "\(.*\)"/\1/p' src/rust-toolchain.toml)
+          echo "RUST_TOOLCHAIN=$CHANNEL" >> "$GITHUB_ENV"
+          rustup toolchain install "$CHANNEL" --profile minimal
+          rustup target add aarch64-linux-android --toolchain "$CHANNEL"
+          rustup default "$CHANNEL"
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libclang-dev
+          cargo install cargo-apk --locked
+      - name: Restore FFmpeg cache
+        id: ffmpeg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: src/vendor/ffmpeg/aarch64-linux-android
+          key: ffmpeg-aarch64-linux-android-${{ hashFiles('src/scripts/ffmpeg-mobile.sh') }}
+      - name: Cross-compile FFmpeg
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        run: src/scripts/ffmpeg-mobile.sh aarch64-linux-android
+      - name: Cache FFmpeg
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: src/vendor/ffmpeg/aarch64-linux-android
+          key: ${{ steps.ffmpeg-cache.outputs.cache-primary-key }}
+      - name: Android runtime libraries
+        run: src/scripts/android-libs.sh aarch64-linux-android
+      - name: Rust dependencies cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src
+          key: edge-tts-aarch64
+      - name: Generate test-only signing key
+        run: |
+          keytool -genkeypair -keystore "$RUNNER_TEMP/concat-edge.keystore" -storepass concat -keypass concat -alias concat -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Concat Edge, O=Personal Build"
+          echo "CARGO_APK_RELEASE_KEYSTORE=$RUNNER_TEMP/concat-edge.keystore" >> "$GITHUB_ENV"
+          echo "CARGO_APK_RELEASE_KEYSTORE_PASSWORD=concat" >> "$GITHUB_ENV"
+      - name: Build APK
+        working-directory: src
+        run: |
+          set -o pipefail
+          eval "$(scripts/mobile-env.sh aarch64-linux-android)"
+          cargo apk build --release -p concat-android --target aarch64-linux-android 2>&1 | tee build.log
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-build-log
+          path: src/build.log
+          if-no-files-found: ignore
+      - name: Stage output
+        run: |
+          mkdir -p stage
+          find src/target -path '*/apk/*.apk' -type f -maxdepth 8 -print
+          APK=$(find src/target -path '*/apk/*.apk' -type f -print -quit)
+          test -n "$APK"
+          cp "$APK" stage/Concat-0.2.9-Edge-TTS-android-arm64.apk
+          ls -lh stage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Concat-Edge-TTS-android-arm64
+          path: stage/Concat-0.2.9-Edge-TTS-android-arm64.apk
+          if-no-files-found: error
