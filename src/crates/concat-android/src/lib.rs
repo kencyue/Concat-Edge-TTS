@@ -96,6 +96,9 @@ mod activity {
     }
 }
 
+#[cfg(target_os = "android")]
+mod edge_tts;
+
 /// The Java in java/, and the way to it.
 ///
 /// The window is a NativeActivity with no Java of its own, and some of
@@ -525,6 +528,8 @@ fn android_main(app: slint::android::AndroidApp) {
     publisher::install(&app);
     microphone::install(&app);
     links::install(&app);
+    // Register the online Microsoft Edge TTS helper as a phone voice.
+    concat_speech::tts::set_system_voice(Box::new(edge_tts::synthesize));
     if let Err(error) = concat::run() {
         log::error!("{error}");
     }

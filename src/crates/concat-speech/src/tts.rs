@@ -62,7 +62,7 @@ pub fn family_of(id: &str) -> Family {
 /// The phone's text-to-speech engine, as the platform crate hands it over:
 /// says `text` into a WAV at the path, at a rate where 1 is the voice's
 /// own, and returns once the file is written. Android's, set at start.
-pub type SystemVoice = dyn Fn(&str, &Path, f32) -> Result<(), String> + Send + Sync;
+pub type SystemVoice = dyn Fn(&str, &Path, f32, i32) -> Result<(), String> + Send + Sync;
 
 static SYSTEM_VOICE: OnceLock<Box<SystemVoice>> = OnceLock::new();
 
@@ -103,8 +103,8 @@ const KNOWN_MODELS: &[KnownModel] = &[
     },
     KnownModel {
         id: SYSTEM_ID,
-        label: "Phone voice",
-        blurb: "Your phone's own voice: instant, in its language, with nothing to download.",
+        label: "Microsoft Edge TTS (online)",
+        blurb: "Traditional Chinese via Microsoft Edge TTS. No model download. Requires internet and the Termux helper.",
         approx_bytes: 0,
     },
 ];
@@ -131,7 +131,8 @@ pub const CHATTERBOX_VOICES: &[(i32, &str, Option<&str>)] = &[
 pub const CHATTERBOX_CLONE: i32 = 2099;
 
 /// The phone's voice: whichever its engine is set to.
-pub const SYSTEM_VOICES: &[(i32, &str)] = &[(3000, "system_default")];
+pub const SYSTEM_VOICES: &[(i32, &str)] =
+    &[(3000, "zm_雲哲"), (3001, "zf_曉臻"), (3002, "zf_曉雨")];
 
 /// The stock recordings Concat carries, by file name.
 #[cfg(feature = "chatterbox")]
@@ -650,7 +651,15 @@ impl Speech {
 
         if family == Family::System {
             let voice = system_voice().ok_or("this device has no voice of its own")?;
-            let duration = speak_on_the_phone(voice, text, speed, &file, &cancel, &mut progress)?;
+            let duration = speak_on_the_phone(
+                voice,
+                text,
+                speed,
+                request.voice,
+                &file,
+                &cancel,
+                &mut progress,
+            )?;
             log::info!(
                 "tts: wrote {} ({duration:.2}s) in {:.1}s",
                 file.display(),
@@ -862,6 +871,7 @@ fn speak_on_the_phone(
     voice: &SystemVoice,
     text: &str,
     speed: f32,
+    voice_id: i32,
     file: &Path,
     cancel: &std::sync::atomic::AtomicBool,
     progress: &mut dyn FnMut(JobStage),
@@ -879,7 +889,7 @@ fn speak_on_the_phone(
             next: (index + 1) as f32 / count,
         });
         let part = file.with_extension(format!("part{index}.wav"));
-        let read = voice(piece, &part, speed).and_then(|()| {
+        let read = voice(piece, &part, speed, voice_id).and_then(|()| {
             if rate == 0 {
                 rate = concat_media::probe(&part)
                     .ok()
