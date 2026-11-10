@@ -1312,7 +1312,7 @@ fn new_title_style(prefs: &crate::prefs::Preferences) -> TextStyle {
     // The look a title was kept as, when one was (see
     // `Studio::use_title_style_for_new`); the bundled face otherwise.
     let base = prefs.title_style.clone().unwrap_or_else(|| TextStyle {
-        font_family: "Hanken Grotesk".to_owned(),
+        font_family: if cfg!(target_os = "android") { "Noto Sans TC" } else { "Hanken Grotesk" }.to_owned(),
         font_weight: 600.0,
         ..TextStyle::default()
     });
@@ -2546,7 +2546,20 @@ impl Studio {
     /// A window with nothing open: the launch screen, with the recents list
     /// read off disk.
     pub fn new(host: Host) -> Self {
-        let prefs = Preferences::load(&host.dirs);
+        let mut prefs = Preferences::load(&host.dirs);
+        if cfg!(target_os = "android") && !prefs.zh_caption_setup_done {
+            let mut style = prefs.title_style.clone().unwrap_or_default();
+            style.content.clear();
+            style.runs.clear();
+            style.font_family = "Noto Sans TC".to_owned();
+            style.font_weight = 600.0;
+            prefs.title_style = Some(style);
+            prefs.transcriber_model = Some("base".to_owned()); // multilingual
+            prefs.caption_language = Some("zh".to_owned());
+            prefs.tts_model = Some(concat_speech::tts::SYSTEM_ID.to_owned());
+            prefs.zh_caption_setup_done = true;
+            prefs.save(&host.dirs);
+        }
         let mut start = crate::panes::start::StartPane::default();
         if let Some(location) = prefs.project_location() {
             start.location = location.to_owned();
