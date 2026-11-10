@@ -940,6 +940,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     editor.on_text_style_default(on_window!(|state| {
         state.use_title_style_for_new();
     }));
+    editor.on_apply_font_to_track(on_window!(|state| {
+        state.apply_font_to_track();
+    }));
     editor.on_import_font(|| {
         Shell::with(|shell, _| {
             if shell.studio.borrow().session.is_none() {
