@@ -1,4 +1,4 @@
-name: Build Concat Edge TTS Android APK
+name: Build Concat 中文字幕 + Microsoft TTS APK
 
 on:
   workflow_dispatch:
@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/edge-android.yml"
       - "src/**"
+      - "tools/edge-tts-android/**"
 
 permissions:
   contents: read
@@ -32,6 +33,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake libclang-dev
           cargo install cargo-apk --locked
+      - name: Prepare Noto Sans TC caption fonts (SIL OFL)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/concat-fonttools"
+          "$RUNNER_TEMP/concat-fonttools/bin/pip" install --disable-pip-version-check fonttools
+          "$RUNNER_TEMP/concat-fonttools/bin/python" tools/edge-tts-android/prepare_fonts.py
+          test -s src/crates/concat-text/fonts/NotoSansTC-Regular.ttf
+          test -s src/crates/concat-text/fonts/NotoSansTC-SemiBold.ttf
       - name: Restore FFmpeg cache
         id: ffmpeg-cache
         uses: actions/cache/restore@v4
@@ -78,10 +86,10 @@ jobs:
           find src/target -path '*/apk/*.apk' -type f -maxdepth 8 -print
           APK=$(find src/target -path '*/apk/*.apk' -type f -print -quit)
           test -n "$APK"
-          cp "$APK" stage/Concat-0.2.9-Edge-TTS-android-arm64.apk
+          cp "$APK" stage/Concat-0.2.9-ZH-Subtitles-Edge-TTS.apk
           ls -lh stage
       - uses: actions/upload-artifact@v4
         with:
-          name: Concat-Edge-TTS-android-arm64
-          path: stage/Concat-0.2.9-Edge-TTS-android-arm64.apk
+          name: Concat-ZH-Subtitles-Edge-TTS-android-arm64
+          path: stage/Concat-0.2.9-ZH-Subtitles-Edge-TTS.apk
           if-no-files-found: error
