@@ -1525,12 +1525,14 @@ export component PhoneEditor inherits Rectangle {
             }
         }
 
-        // ── transitions: onto the cut into the selected clip ──
+        // ── transitions: pick a cut, not an arbitrary playhead position ──
         if root.sheet == "transitions": VerticalLayout {
             padding: 12px;
             spacing: 8px;
 
-            if !root.has-clip: SheetNote { text: I18n.t("phone.selectClipFirst"); }
+            SheetNote {
+                text: "請讓兩段影片在同一軌道首尾相接；選取任一段後點轉場。成功後預覽會跳到交界處。";
+            }
             ShelfSearch {
                 shelf: 3;
                 placeholder: I18n.t1("common.searchKind", I18n.t("mediaPane.transition"));
@@ -1543,7 +1545,10 @@ export component PhoneEditor inherits Rectangle {
                 entries: Editor.catalogue-transitions;
                 glyph: Glyph.transition;
                 auditions: false;
-                applied(id, label) => { Editor.library-apply-transition(id); }
+                applied(id, label) => {
+                    Editor.library-apply-transition-phone(id);
+                    root.hide();
+                }
             }
         }
 

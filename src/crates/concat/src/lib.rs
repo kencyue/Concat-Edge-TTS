@@ -1005,6 +1005,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     editor.on_library_apply_transition(on_window!(|state, id: SharedString| {
         state.apply_transition(id.as_str());
     }));
+    editor.on_library_apply_transition_phone(on_window!(|state, id: SharedString| {
+        state.apply_transition_phone(id.as_str());
+    }));
     editor.on_library_save_template(on_window!(|state| {
         state.save_template();
     }));

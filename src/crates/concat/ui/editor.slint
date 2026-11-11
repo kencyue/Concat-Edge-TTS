@@ -124,6 +124,8 @@ export global Editor {
     callback library-add-shape(shape: string, label: string);
     callback library-apply-effect(effect-id: string);
     callback library-apply-transition(transition-id: string);
+    /// Phone: put a transition precisely on the selected neighbouring cut.
+    callback library-apply-transition-phone(transition-id: string);
     /// Filters page: lay the look down as a layer at the playhead.
     callback library-apply-filter(filter-id: string, label: string);
     /// Filters page: show the look over the whole picture without laying

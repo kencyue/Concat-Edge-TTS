@@ -565,6 +565,120 @@ impl Studio {
         }
     }
 
+    /// Mobile transition placement is different from desktop's permissive
+    /// playhead effects: on a touchscreen, an accidental off-cut overlay
+    /// looks like a nonworking transition. Resolve the selected picture's
+    /// incoming or outgoing *adjacent* cut, or explain what is missing.
+    ///
+    /// Selecting the first clip in a pair works just as selecting the
+    /// second; the desktop still has the playhead single-shot transition.
+    pub fn apply_transition_phone(&mut self, id: &str) {
+        let visual = |kind: model::ClipKind| kind.is_visual();
+        let clips = &self.timeline().clips;
+        let tolerance = self.frame_seconds().max(0.001);
+        let at = match self.selection.as_slice() {
+            [one] => {
+                let Some(clip) = self.clip(one) else {
+                    self.notify("請先選取影片片段", true);
+                    return;
+                };
+                if !visual(clip.kind) {
+                    self.notify("請選取影片或圖片片段，而不是字幕、聲音或轉場圖層", true);
+                    return;
+                }
+                if self.locked(&clip.track_id) {
+                    self.notify("影片軌道已鎖定，無法加入轉場", true);
+                    return;
+                }
+                let incoming = clips.iter().any(|other| {
+                    other.id != clip.id
+                        && visual(other.kind)
+                        && other.track_id == clip.track_id
+                        && (other.start + other.duration - clip.start).abs() < tolerance
+                });
+                let end = clip.start + clip.duration;
+                let outgoing = clips.iter().any(|other| {
+                    other.id != clip.id
+                        && visual(other.kind)
+                        && other.track_id == clip.track_id
+                        && (other.start - end).abs() < tolerance
+                });
+                match (incoming, outgoing) {
+                    (true, true) => {
+                        let before = (f64::from(self.playhead) - clip.start).abs();
+                        let after = (f64::from(self.playhead) - end).abs();
+                        if before <= after {
+                            Some(clip.start)
+                        } else {
+                            Some(end)
+                        }
+                    }
+                    (true, false) => Some(clip.start),
+                    (false, true) => Some(end),
+                    (false, false) => None,
+                }
+            }
+            [a, b] => {
+                let (Some(a), Some(b)) = (self.clip(a), self.clip(b)) else {
+                    self.notify("請重新選取兩段影片", true);
+                    return;
+                };
+                let (first, second) = if a.start <= b.start { (a, b) } else { (b, a) };
+                (visual(first.kind)
+                    && visual(second.kind)
+                    && first.track_id == second.track_id
+                    && (first.start + first.duration - second.start).abs() < tolerance)
+                    .then_some(second.start)
+            }
+            _ => None,
+        };
+        let Some(cut) = at else {
+            self.notify(
+                "轉場需要同一軌道上首尾相接的兩段影片。請選取其中一段再點轉場。",
+                true,
+            );
+            return;
+        };
+        // Built-in transition names are user-facing; keep custom catalogue
+        // ids working too, as the desktop library does.
+        let label = Catalogue::builtin()
+            .get(id)
+            .map(|package| package.manifest.effect.name.clone())
+            .unwrap_or_else(|| id.to_owned());
+        // Applying a different transition to the same cut replaces the
+        // existing transition instead of stacking multiple overlays.
+        let existing = clips
+            .iter()
+            .find(|clip| {
+                clip.kind == model::ClipKind::Transition
+                    && clip.start < cut
+                    && cut < clip.start + clip.duration
+            })
+            .map(|clip| clip.id.clone());
+        if let Some(clip_id) = existing {
+            self.apply(Command::UpdateClip {
+                clip_id: clip_id.clone(),
+                patch: ClipPatch {
+                    name: Some(label.clone()),
+                    video_effects: Some(vec![AppliedFilter::new(id)]),
+                    ..ClipPatch::default()
+                },
+            });
+            self.selection = vec![clip_id];
+        } else {
+            let duration = f64::from(TRANSITION_DURATION);
+            if let Some(created) = self.place_transition(id, &label, None, cut, duration) {
+                self.selection = vec![created];
+            } else {
+                self.notify("無法加入轉場，請確認軌道未鎖定且影片已正確排列", true);
+                return;
+            }
+        }
+        self.pause();
+        self.seek(cut as f32);
+        self.notify(&format!("已套用「{label}」，播放頭已定位到影片接縫"), false);
+    }
+
     /// Places the catalogue transition `id` as a clip of its own (#621):
     /// centred on the cut the selection names (see
     /// [`Studio::transition_cut`]), or, with no cut selected, at the
