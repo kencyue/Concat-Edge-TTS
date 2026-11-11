@@ -17,6 +17,9 @@ crate-type = ["cdylib"]
 # activity's entry point.
 concat.workspace = true
 concat-speech.workspace = true
+concat-media.workspace = true
+# Native Edge read-aloud (Sec-MS-GEC v2): included in the APK, no Termux.
+msedge-tts = { version = "=0.4.1", default-features = false, features = ["blocking"] }
 serde_json.workspace = true
 slint = { version = "1.18", default-features = false, features = [
     "std",
