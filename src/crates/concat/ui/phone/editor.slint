@@ -1681,6 +1681,18 @@ export component PhoneEditor inherits Rectangle {
 
             SheetButton {
                 horizontal-stretch: 1;
+                glyph: Glyph.trash;
+                primary: false;
+                label: "移除素材";
+                clicked => {
+                    // Only unused items are removed; clips on the timeline
+                    // are never silently deleted from the phone's media bin.
+                    Editor.media-remove-unused-selected();
+                }
+            }
+            Rectangle { width: 8px; }
+            SheetButton {
+                horizontal-stretch: 1;
                 glyph: Glyph.plus;
                 primary: true;
                 label: I18n.t1("phone.addPicked", Editor.media-selected-count);

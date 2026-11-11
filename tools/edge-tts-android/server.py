@@ -26,12 +26,8 @@ MAX_REQUEST = 30_000
 MAX_CHARS = 3_900
 
 
-# Only these phonetic aliases are used when the ORIGINAL character is
-# rejected by Microsoft. They are homophones for Taiwan Mandarin.
-# The user's actual title/caption text is never altered.
-HOMOPHONES = {"啟": "起", "啓": "起"}
+# Preserve the source text exactly: no aliasing, homophones or voice switches.
 _SAMPLE_RATE = 24000
-_SINGLE_CHAR_CACHE = {}
 
 
 def _make_wav(samples):
@@ -73,68 +69,74 @@ def _decode_and_trim(mp3_file):
     return audio[first:last].tobytes()
 
 
-async def _single_char(char, voice, rate, folder, index):
-    key = (char, voice, rate)
-    if key in _SINGLE_CHAR_CACHE:
-        return _SINGLE_CHAR_CACHE[key]
-    for attempt, candidate in enumerate([char] + ([HOMOPHONES[char]] if char in HOMOPHONES else [])):
-        mp3 = Path(folder) / f"char-{index}-{attempt}.mp3"
-        try:
-            await asyncio.wait_for(
-                edge_tts.Communicate(candidate, voice, rate=rate).save(str(mp3)), timeout=30
-            )
-            if not mp3.exists() or mp3.stat().st_size == 0:
-                raise NoAudioReceived("Empty voice segment")
-            pcm = _decode_and_trim(mp3)
-            if candidate != char:
-                logging.warning("Phonetic alias in same voice: %s -> %s (voice %s)", char, candidate, voice)
-            if len(_SINGLE_CHAR_CACHE) > 256:
-                _SINGLE_CHAR_CACHE.clear()
-            _SINGLE_CHAR_CACHE[key] = pcm
-            return pcm
-        except (NoAudioReceived, asyncio.TimeoutError):
-            if attempt == 0 and char in HOMOPHONES:
-                continue
-            raise RuntimeError(f"雲端語音無法正確朗讀字元「{char}」；未切換音色")
-    raise RuntimeError(f"無法朗讀字元「{char}」")
+async def _synthesize_piece(text, voice, rate, folder, index, depth=0):
+    """Synthesize exact source substring with the selected voice only.
 
-
-async def _fallback_to_syllables(text, requested_voice, rate, folder):
-    """Last resort: speak individual characters in THE SAME voice, join to WAV.
-
-    Avoids any silent switch to a different Microsoft voice. This is intended
-    for rare short lines with Edge service failures; it cannot imitate the
-    full-sentence prosody, so avoid using it if direct synthesis succeeds.
+    Split large phrases further only when Edge TTS returned no audio.
+    Never rewrite a word or change the speaker.
     """
-    import unicodedata
-    chars = list(text)
-    if len(chars) > 48:
-        raise RuntimeError("原句音色產生失敗，文字過長，無法使用同音色分段模式")
-    parts = []
-    # 30-50 ms gaps smooth out separately synthesized syllables.
-    tiny_gap = bytes(int(_SAMPLE_RATE * 0.035) * 2)
-    pause = bytes(int(_SAMPLE_RATE * 0.12) * 2)
-    for i, char in enumerate(chars):
-        if char.isspace():
-            parts.append(tiny_gap)
-        elif unicodedata.category(char).startswith("P"):
-            parts.append(pause)
+    file = Path(folder) / f"phrase-{index}-{depth}.mp3"
+    for attempt in range(2):
+        try:
+            if file.exists():
+                file.unlink()
+            await asyncio.wait_for(
+                edge_tts.Communicate(text, voice, rate=rate).save(str(file)), timeout=35
+            )
+            if not file.exists() or file.stat().st_size == 0:
+                raise NoAudioReceived("No audio in phrase")
+            return _decode_and_trim(file)
+        except (NoAudioReceived, asyncio.TimeoutError) as exc:
+            if attempt < 1:
+                await asyncio.sleep(0.4)
+    if len(text) < 3 or depth >= 4:
+        raise RuntimeError(
+            f"指定音色 {voice} 無法朗讀「{text}」；已保留原文及音色，請稍後重試。"
+        )
+    mid = len(text) // 2
+    first = await _synthesize_piece(text[:mid], voice, rate, folder, index + "L", depth + 1)
+    last = await _synthesize_piece(text[mid:], voice, rate, folder, index + "R", depth + 1)
+    return first + bytes(int(_SAMPLE_RATE * 0.035) * 2) + last
+
+
+async def _fallback_to_phrases(text, selected_voice, rate, folder):
+    """Reconstruct only by ORIGINAL text segments using the same voice.
+
+    Segment at Chinese punctuation first to avoid single-character prosody.
+    If a segment remains unavailable, recursively shorten its boundaries.
+    """
+    import re
+
+    if len(text) > 96:
+        raise RuntimeError("指定音色整句合成失敗，內容過長，請分成較短的句子。")
+    tokens = re.split(r"([，。！？、；：,.!?;:\n])", text)
+    pieces = []
+    pause = bytes(int(_SAMPLE_RATE * 0.11) * 2)
+    for idx, segment in enumerate(tokens):
+        if not segment:
+            continue
+        if re.fullmatch(r"[，。！？、；：,.!?;:\n]", segment):
+            pieces.append(pause)
+        elif segment.isspace():
+            pieces.append(pause)
         else:
-            parts.append(await _single_char(char, requested_voice, rate, folder, i))
-            parts.append(tiny_gap)
-    if not parts:
-        raise RuntimeError("分段語音無有效字元")
+            pieces.append(await _synthesize_piece(
+                segment, selected_voice, rate, folder, str(idx)
+            ))
+            pieces.append(bytes(int(_SAMPLE_RATE * 0.035) * 2))
+    if not pieces:
+        raise RuntimeError("沒有可朗讀的文字")
     out = Path(folder) / "reconstructed.wav"
-    out.write_bytes(_make_wav(b"".join(parts)))
+    out.write_bytes(_make_wav(b"".join(pieces)))
     logging.warning(
-        "Edge TTS full phrase failed; reconstructed %s characters using ONLY %s",
-        len(chars), requested_voice,
+        "Strict-voice phrase recovery for %d chars using only %s (no text rewrite)",
+        len(text), selected_voice
     )
     return out
 
 
 async def get_audio(text, requested_voice, voice_id, rate, folder):
-    """Never switch voices; if the full phrase fails, salvage via syllables."""
+    """Never switch voices or rewrite text; split on phrase boundaries if needed."""
     attempts = 3
     for n in range(attempts):
         output = Path(folder) / f"attempt{n}.mp3"
@@ -154,8 +156,8 @@ async def get_audio(text, requested_voice, voice_id, rate, folder):
             if n == attempts - 1:
                 break
             await asyncio.sleep(0.6 + n * 0.8)
-    # Reconstruct only short utterances, using the same selected voice.
-    audio = await _fallback_to_syllables(text, requested_voice, rate, folder)
+    # Split only the original text; honor the selected voice.
+    audio = await _fallback_to_phrases(text, requested_voice, rate, folder)
     return audio, requested_voice
 
 
@@ -181,7 +183,7 @@ class Handler(BaseHTTPRequestHandler):
                 json.dumps(
                     {"status": "ok", "provider": "Microsoft Edge TTS",
                      "voices": VOICES, "strict_voice": True,
-                     "no_audio_retry": True, "same_voice_syllable_recovery": True},
+                     "no_audio_retry": True, "same_voice_phrase_recovery": True},
                     ensure_ascii=False,
                 ),
                 "application/json; charset=utf-8",

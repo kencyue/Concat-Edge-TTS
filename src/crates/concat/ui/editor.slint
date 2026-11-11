@@ -97,6 +97,8 @@ export global Editor {
         from-row: int, to-row: int, additive: bool);
     callback media-remove(id: int);
     callback media-remove-selected();
+    /// Phone-safe removal: never delete clips in use on any timeline.
+    callback media-remove-unused-selected();
     callback media-activate(id: int);
     /// The phone's Add: what is picked, in the order it was picked, onto
     /// the main lane at the playhead - or after its last clip, `at-end`.

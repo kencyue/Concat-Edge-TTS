@@ -509,6 +509,28 @@ impl SpeechPane {
                                 });
                             }
                             studio.notify(&t("speech.voiceAddedTimeline"), false);
+                            // TTS produces a complete audio file regardless
+                            // of the source subtitle's frame duration.
+                            // Warn when its sound extends beyond the title.
+                            if let (Some(source_id), Some(audio_seconds)) =
+                                (self.clip.as_deref(), summary.duration)
+                            {
+                                let title_seconds = studio
+                                    .clip(source_id)
+                                    .filter(|source| source.kind == ClipKind::Text)
+                                    .map(|source| source.duration);
+                                if let Some(title_seconds) = title_seconds {
+                                    if audio_seconds > title_seconds + 0.05 {
+                                        studio.notify(
+                                            &format!(
+                                                "配音長 {:.1} 秒，字幕長 {:.1} 秒；請延長字幕或調整語速。",
+                                                audio_seconds, title_seconds
+                                            ),
+                                            true,
+                                        );
+                                    }
+                                }
+                            }
                         }
                     }
                     // Asked for: the sheet is already on its way down.

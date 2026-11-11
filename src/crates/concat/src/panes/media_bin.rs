@@ -47,6 +47,8 @@ pub enum MediaMsg {
     },
     Remove(i32),
     RemoveSelected,
+    /// Phone-only, safe removal: skip assets used on any timeline.
+    RemoveUnusedSelected,
     /// Files picked, dropped or handed over by the platform.
     Import(Vec<PathBuf>),
     /// The import's worker is done probing.
@@ -162,6 +164,49 @@ impl MediaBin {
                         .map(|media_id| Command::RemoveMedia { media_id })
                         .collect(),
                 });
+            }
+            MediaMsg::RemoveUnusedSelected => {
+                // Removing a media item normally removes every clip referring
+                // to it. On phones, delete only items unused on ALL timelines.
+                // This does not delete the user's physical photo/video file.
+                let used: HashSet<String> = studio
+                    .project()
+                    .timelines
+                    .iter()
+                    .flat_map(|timeline| timeline.clips.iter())
+                    .map(|clip| clip.media_id.clone())
+                    .collect();
+                let remove: Vec<String> = self
+                    .selected
+                    .iter()
+                    .filter(|id| !used.contains(*id))
+                    .cloned()
+                    .collect();
+                let blocked = self.selected.len() - remove.len();
+                self.selected.retain(|id| used.contains(id));
+                self.picked.retain(|id| used.contains(id));
+                let removed = remove.len();
+                if removed > 0 {
+                    studio.apply(Command::Batch {
+                        commands: remove
+                            .into_iter()
+                            .map(|media_id| Command::RemoveMedia { media_id })
+                            .collect(),
+                    });
+                }
+                if blocked > 0 {
+                    studio.notify(
+                        &format!(
+                            "已移除 {removed} 個素材；另有 {blocked} 個正在時間軸使用，未刪除。"
+                        ),
+                        true,
+                    );
+                } else if removed > 0 {
+                    studio.notify(
+                        &format!("已從素材庫移除 {removed} 個素材；手機原始檔保留。"),
+                        false,
+                    );
+                }
             }
             MediaMsg::Import(paths) => {
                 if paths.is_empty() || studio.session.is_none() {

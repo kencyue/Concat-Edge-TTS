@@ -912,6 +912,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     editor.on_media_remove_selected(on_window!(|state| {
         state.handle(Msg::Media(MediaMsg::RemoveSelected));
     }));
+    editor.on_media_remove_unused_selected(on_window!(|state| {
+        state.handle(Msg::Media(MediaMsg::RemoveUnusedSelected));
+    }));
     // Not through the handler macro: nothing here changes the state, and
     // the dialog is asked on a turn of its own with the studio unborrowed;
     // a phone's picker is another screen, and its files come back later.
