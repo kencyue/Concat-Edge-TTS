@@ -575,7 +575,10 @@ impl Studio {
     pub fn apply_transition_phone(&mut self, id: &str) {
         let visual = |kind: model::ClipKind| kind.is_visual();
         let clips = &self.timeline().clips;
-        let tolerance = self.frame_seconds().max(0.001);
+        // The export compositor requires two pictures to meet to within half
+        // a frame; using one full frame here would accept gaps which the
+        // renderer cannot turn into an actual two-shot transition.
+        let tolerance = (self.frame_seconds() / 2.0).max(0.001);
         let at = match self.selection.as_slice() {
             [one] => {
                 let Some(clip) = self.clip(one) else {
