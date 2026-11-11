@@ -22,43 +22,43 @@ VOICES = {
     3001: "zh-TW-HsiaoChenNeural",
     3002: "zh-TW-HsiaoYuNeural",
 }
-# Microsoft sometimes returns no audio for a single voice. Preserve the
-# requested gender where possible. Yunyang is male Mandarin (zh-CN accent).
-FALLBACKS = {
-    3000: "zh-CN-YunyangNeural",
-    3001: "zh-TW-HsiaoYuNeural",
-    3002: "zh-TW-HsiaoChenNeural",
-}
 MAX_REQUEST = 30_000
 MAX_CHARS = 3_900
 
 
 async def get_audio(text, requested_voice, voice_id, rate, folder):
-    """Retry a NoAudioReceived once, then use a disclosed fallback."""
-    attempted = [requested_voice, requested_voice, FALLBACKS[voice_id]]
-    for n, voice in enumerate(attempted):
+    """Strict voice identity: never substitute another voice, even on failure.
+
+    Microsoft Edge TTS occasionally returns no audio. Retry only the selected
+    voice three times in total; propagate an error if it remains unavailable.
+    """
+    attempts = 3
+    for n in range(attempts):
         output = Path(folder) / f"attempt{n}.mp3"
         try:
             await asyncio.wait_for(
-                edge_tts.Communicate(text, voice, rate=rate).save(str(output)),
+                edge_tts.Communicate(text, requested_voice, rate=rate).save(str(output)),
                 timeout=45.0,
             )
-            if output.stat().st_size == 0:
+            if not output.exists() or output.stat().st_size == 0:
                 raise NoAudioReceived("Audio file is empty")
             if n > 0:
-                logging.warning(
-                    "Microsoft Edge TTS fallback: requested=%s actual=%s attempt=%s",
-                    requested_voice, voice, n + 1,
+                logging.info(
+                    "Edge TTS recovered with same voice=%s on attempt=%s",
+                    requested_voice, n + 1,
                 )
-            return output, voice
+            return output, requested_voice
         except (NoAudioReceived, asyncio.TimeoutError) as err:
             logging.warning(
-                "Edge TTS unavailable for voice=%s attempt=%s: %s",
-                voice, n + 1, err,
+                "Edge TTS selected voice=%s failed (%s/%s): %s",
+                requested_voice, n + 1, attempts, err,
             )
-            if n == len(attempted) - 1:
-                raise
-            await asyncio.sleep(0.5 if n == 0 else 0.8)
+            if n == attempts - 1:
+                raise RuntimeError(
+                    f"指定音色 {requested_voice} 暫時無法產生語音；"
+                    "已重試三次，未切換成其他音色。請稍後重試。"
+                ) from err
+            await asyncio.sleep(0.6 + n * 0.8)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -82,7 +82,7 @@ class Handler(BaseHTTPRequestHandler):
                 200,
                 json.dumps(
                     {"status": "ok", "provider": "Microsoft Edge TTS",
-                     "voices": VOICES, "fallbacks": FALLBACKS,
+                     "voices": VOICES, "strict_voice": True,
                      "no_audio_retry": True},
                     ensure_ascii=False,
                 ),
