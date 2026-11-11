@@ -170,7 +170,14 @@ impl Studio {
                     })
                     .flatten()
                     .collect();
-                let shift = seconds + self.snap_shift(&edges, threshold, &moving);
+                // Clamp the whole group at zero rather than clamping each
+                // clip independently. Independent clamping compresses gaps
+                // between selected captions near the timeline origin.
+                let earliest = origins
+                    .iter()
+                    .map(|origin| origin.start)
+                    .fold(f32::INFINITY, f32::min);
+                let shift = (seconds + self.snap_shift(&edges, threshold, &moving)).max(-earliest);
                 let rows = nearest_row(lanes, row_top(lanes, anchor.row) + pixels) - anchor.row;
                 let count = self.timeline().tracks.len() as i32;
                 let moves: Vec<ClipMove> = origins
