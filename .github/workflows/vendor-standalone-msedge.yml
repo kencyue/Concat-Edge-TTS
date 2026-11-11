@@ -48,7 +48,7 @@ jobs:
           assert 'use rustls_platform_verifier::ConfigVerifierExt;' in s
           s=s.replace('use rustls_platform_verifier::ConfigVerifierExt;','')
           before='''    let config = ClientConfig::with_platform_verifier()
-        .map_err(|e| Error::Tls(TlsError::Rustls(Box::new(e))))?;'''
+                  .map_err(|e| Error::Tls(TlsError::Rustls(Box::new(e))))?;'''
           if before not in s:
               print(s[s.index('let config = ClientConfig::with_platform_verifier()')-50:s.index('let config = ClientConfig::with_platform_verifier()')+200])
               raise ValueError('Unexpected rustls platform verifier expression')
