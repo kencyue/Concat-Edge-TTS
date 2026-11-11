@@ -1182,6 +1182,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     editor.on_select_text_track(on_window!(|state| {
         state.select_text_track();
     }));
+    editor.on_speech_batch_open(on_window!(|state| {
+        state.handle(Msg::Speech(SpeechMsg::OpenBatch));
+    }));
     editor.on_clip_split(on_lanes!(|state, id: SharedString, seconds: f32| {
         state.split_clip_at(&id, seconds);
     }));
@@ -2325,6 +2328,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     });
     app.on_speech_begin(on_window!(|state| {
         state.handle(Msg::Speech(SpeechMsg::Begin));
+    }));
+    app.on_speech_batch_begin(on_window!(|state| {
+        state.handle(Msg::Speech(SpeechMsg::BeginBatch));
+    }));
+    app.on_speech_batch_retry_failed(on_window!(|state| {
+        state.handle(Msg::Speech(SpeechMsg::RetryFailed));
     }));
     app.on_speech_cancel(on_window!(|state| {
         state.handle(Msg::Speech(SpeechMsg::Cancel));

@@ -114,6 +114,12 @@ fn reading_pace(family: Family) -> f32 {
 pub enum SpeechMsg {
     /// The tray's Speak tool, or the menu.
     Open,
+    /// Open the speech sheet for all selected title/subtitle clips on the timeline.
+    OpenBatch,
+    /// Start sequential TTS generation for the current batch selection.
+    BeginBatch,
+    /// Re-run only failed captions in the most recent batch.
+    RetryFailed,
     /// The Audio page's Voices shelf: the sheet with that voice or style.
     OpenWith(VoiceChoice),
     /// The name a sample is to be saved under, typed.
@@ -193,9 +199,32 @@ pub struct NewVoice {
     saving: bool,
 }
 
+/// Immutable snapshot of a selected subtitle's original content and timing.
+#[derive(Clone, Debug)]
+struct BatchLine {
+    clip_id: String,
+    text: String,
+    start: f64,
+    duration: f64,
+}
+
+/// A sequential, cancellable batch: each caption yields its own sound file
+/// and is added to the timeline at the caption's original start time.
+#[derive(Default)]
+struct BatchSpeech {
+    queue: Vec<BatchLine>,
+    cursor: usize,
+    success: usize,
+    skipped: usize,
+    too_long: usize,
+    failed: Vec<(BatchLine, String)>,
+    active: bool,
+}
+
 /// The speech sheet's state.
 #[derive(Default)]
 pub struct SpeechPane {
+    batch: Option<BatchSpeech>,
     pub open: bool,
     /// The title the words came from, and where the sound lands. None
     /// reads a script of its own at the playhead.
@@ -300,6 +329,46 @@ impl SpeechPane {
                 self.voice = self.voice_row(wanted);
                 self.sample = self.default_sample(studio);
             }
+            SpeechMsg::OpenBatch => {
+                if self.running {
+                    self.open = true;
+                    return;
+                }
+                let mut queue: Vec<BatchLine> = studio
+                    .selection
+                    .iter()
+                    .filter_map(|id| {
+                        let clip = studio.clip(id)?;
+                        if clip.kind != ClipKind::Text {
+                            return None;
+                        }
+                        let text = clip.text.as_ref()?.content.trim().to_owned();
+                        if text.is_empty() || studio.locked(&clip.track_id) {
+                            return None;
+                        }
+                        Some(BatchLine {
+                            clip_id: clip.id.clone(),
+                            text,
+                            start: clip.start,
+                            duration: clip.duration,
+                        })
+                    })
+                    .collect();
+                queue.sort_by(|a, b| a.start.total_cmp(&b.start));
+                if queue.is_empty() {
+                    studio.notify("請先在時間軸多選有文字的字幕，或使用「全選本軌」", true);
+                    return;
+                }
+                self.update(SpeechMsg::Open, studio);
+                self.batch = Some(BatchSpeech {
+                    queue,
+                    ..BatchSpeech::default()
+                });
+                self.text.clear();
+                self.message.clear();
+            }
+            SpeechMsg::BeginBatch => self.begin_batch(studio, false),
+            SpeechMsg::RetryFailed => self.begin_batch(studio, true),
             SpeechMsg::OpenWith(choice) => {
                 if !self.running {
                     self.update(SpeechMsg::Open, studio);
@@ -458,12 +527,21 @@ impl SpeechPane {
             }
             SpeechMsg::Begin => self.run(studio),
             SpeechMsg::Cancel => {
+                // Keep the batch record for its failure summary, but suppress
+                // insertion of an already-cancelled worker's late result.
+                if let Some(batch) = self.batch.as_mut() {
+                    batch.active = false;
+                }
                 studio.host.speech.cancel();
                 self.running = false;
                 self.open = false;
             }
             SpeechMsg::Progress(stage) => self.pace.report(stage),
             SpeechMsg::Finished(result) => {
+                if self.batch.is_some() {
+                    self.batch_finished(*result, studio);
+                    return;
+                }
                 self.running = false;
                 if let (Ok(_), Some((model, chars))) = (result.as_ref(), self.reading.take()) {
                     self.timings.keep(&model, self.pace.learned(chars));
@@ -546,6 +624,187 @@ impl SpeechPane {
                 }
             }
         }
+    }
+
+    /// A previously generated speech clip at the same subtitle start must
+    /// not be duplicated. The check is restricted to Speech-origin media,
+    /// not imported sound effects or the video's original audio.
+    fn speech_already_at(studio: &Studio, start: f64) -> bool {
+        studio.timeline().clips.iter().any(|clip| {
+            clip.kind == ClipKind::Audio
+                && (clip.start - start).abs() < 0.055
+                && studio.project().media.iter().any(|item| {
+                    item.id == clip.media_id && item.origin == Some(MediaOrigin::Speech)
+                })
+        })
+    }
+
+    fn begin_batch(&mut self, studio: &mut Studio, only_failed: bool) {
+        if self.running {
+            return;
+        }
+        if self.family != Family::System {
+            self.message = "批次配音目前使用 Microsoft Edge TTS，請選擇手機語音模型。".to_owned();
+            return;
+        }
+        let Some(batch) = self.batch.as_mut() else {
+            return;
+        };
+        if only_failed {
+            if batch.failed.is_empty() {
+                self.message = "目前沒有需要重試的字幕".to_owned();
+                return;
+            }
+            batch.queue = std::mem::take(&mut batch.failed)
+                .into_iter()
+                .map(|(line, _)| line)
+                .collect();
+        }
+        batch.cursor = 0;
+        batch.success = 0;
+        batch.skipped = 0;
+        batch.too_long = 0;
+        batch.failed.clear();
+        batch.active = true;
+        self.message.clear();
+        self.advance_batch(studio);
+    }
+
+    /// Start exactly one job; the normal SpeechMsg::Finished path starts
+    /// the next job only after the previous has been saved and placed.
+    fn advance_batch(&mut self, studio: &mut Studio) {
+        loop {
+            let Some(batch) = self.batch.as_mut() else {
+                return;
+            };
+            if !batch.active {
+                return;
+            }
+            let Some(line) = batch.queue.get(batch.cursor).cloned() else {
+                batch.active = false;
+                self.running = false;
+                self.clip = None;
+                self.text.clear();
+                let total = batch.queue.len();
+                let failure_count = batch.failed.len();
+                self.message = format!(
+                    "批次完成 {total} 段：成功 {}、已配音跳過 {}、失敗 {failure_count}、配音超過字幕長度 {}。{}",
+                    batch.success,
+                    batch.skipped,
+                    batch.too_long,
+                    if failure_count > 0 {
+                        "可按「重試失敗字幕」。"
+                    } else {
+                        ""
+                    }
+                );
+                studio.notify(&self.message, failure_count > 0);
+                return;
+            };
+            if !studio
+                .clip(&line.clip_id)
+                .is_some_and(|clip| clip.kind == ClipKind::Text && clip.start == line.start)
+            {
+                batch
+                    .failed
+                    .push((line, "字幕已移動或刪除，為避免錯位已跳過".to_owned()));
+                batch.cursor += 1;
+                continue;
+            }
+            if Self::speech_already_at(studio, line.start) {
+                batch.skipped += 1;
+                batch.cursor += 1;
+                continue;
+            }
+            self.clip = Some(line.clip_id);
+            self.text = line.text;
+            self.landing = line.start;
+            self.run(studio);
+            if self.running {
+                return;
+            }
+            // Failed validation, e.g. missing speech model/voice.
+            let reason = self.message.clone();
+            if let Some(batch) = self.batch.as_mut() {
+                let line = batch.queue[batch.cursor].clone();
+                batch.failed.push((line, reason));
+                batch.cursor += 1;
+            }
+        }
+    }
+
+    fn batch_finished(&mut self, result: Result<MediaSummary, String>, studio: &mut Studio) {
+        self.running = false;
+        self.reading.take();
+        let Some(batch) = self.batch.as_mut() else {
+            return;
+        };
+        // A cancellation must not insert late audio.
+        if !batch.active {
+            return;
+        }
+        let Some(line) = batch.queue.get(batch.cursor).cloned() else {
+            return;
+        };
+        match result {
+            Ok(summary) => {
+                let mut item = summary.to_new_media();
+                item.origin = Some(MediaOrigin::Speech);
+                let created = studio.apply(Command::AddMedia { item });
+                let media_id = created.or_else(|| {
+                    studio
+                        .project()
+                        .media
+                        .iter()
+                        .find(|item| item.path == summary.path)
+                        .map(|item| item.id.clone())
+                });
+                if let Some(media_id) = media_id {
+                    if let Some(clip_id) = studio.apply(Command::AddClipAtFirstFree {
+                        media_id,
+                        start: line.start,
+                    }) {
+                        // Keep exactly one clip per subtitle, and reuse the
+                        // source title's start even when its sound is longer.
+                        if let Some(style) = self.style.and_then(|row| STYLES.get(row)) {
+                            studio.apply(Command::UpdateClip {
+                                clip_id,
+                                patch: ClipPatch {
+                                    filters: Some(
+                                        style
+                                            .effects
+                                            .iter()
+                                            .map(|id| AppliedFilter::new(*id))
+                                            .collect(),
+                                    ),
+                                    ..ClipPatch::default()
+                                },
+                            });
+                        }
+                        batch.success += 1;
+                        if summary
+                            .duration
+                            .is_some_and(|secs| secs > line.duration + 0.05)
+                        {
+                            batch.too_long += 1;
+                        }
+                    } else {
+                        batch
+                            .failed
+                            .push((line, "配音已產生，但無法放到時間軸".into()));
+                    }
+                } else {
+                    batch
+                        .failed
+                        .push((line, "配音已產生，但無法匯入素材庫".into()));
+                }
+            }
+            Err(error) => batch.failed.push((line, error)),
+        }
+        if let Some(batch) = self.batch.as_mut() {
+            batch.cursor += 1;
+        }
+        self.advance_batch(studio);
     }
 
     /// Reads the script on a worker: the WAV lands in the bin and on the
@@ -969,6 +1228,13 @@ impl SpeechPane {
             reference_length: length as f32,
             reference_start: self.reference_offset(length) as f32,
             running: self.running,
+            batch: self.batch.is_some(),
+            batch_total: self.batch.as_ref().map_or(0, |batch| batch.queue.len()) as i32,
+            batch_done: self.batch.as_ref().map_or(0, |batch| batch.cursor) as i32,
+            batch_success: self.batch.as_ref().map_or(0, |batch| batch.success) as i32,
+            batch_skipped: self.batch.as_ref().map_or(0, |batch| batch.skipped) as i32,
+            batch_failed: self.batch.as_ref().map_or(0, |batch| batch.failed.len()) as i32,
+            batch_too_long: self.batch.as_ref().map_or(0, |batch| batch.too_long) as i32,
             progress: self.pace.floor,
             ceiling: self.pace.ceiling,
             step: self.pace.step,

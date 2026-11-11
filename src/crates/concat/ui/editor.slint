@@ -463,6 +463,8 @@ export global Editor {
     callback clip-pressed(id: string, additive: bool, edge: int);
     /// Select all text clips on the selected subtitle's lane, for group edits/moves.
     callback select-text-track();
+    /// Open batch TTS for current selected captions, preserving starts.
+    callback speech-batch-open();
     /// Save Video Frame As, from the picture's right-click menu: the
     /// frame at the playhead, at the output's size, as a PNG.
     callback save-frame();

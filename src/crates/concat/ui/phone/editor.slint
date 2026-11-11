@@ -1111,6 +1111,14 @@ export component PhoneEditor inherits Rectangle {
                 current: root.sheet == "clip-text";
                 clicked => { root.show("clip-text", true); }
             }
+            if root.is-text: ToolItem {
+                glyph: Glyph.volume;
+                label: "批次 TTS";
+                clicked => {
+                    root.hide();
+                    Editor.speech-batch-open();
+                }
+            }
             if root.is-layer: ToolItem {
                 glyph: Glyph.filter;
                 label: I18n.t("configPane.filter");

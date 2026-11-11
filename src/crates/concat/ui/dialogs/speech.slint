@@ -59,6 +59,14 @@ export struct SpeechSheetData {
     /// Seconds into that sample the speaking starts.
     reference-start: float,
     running: bool,
+    /// Batch selected subtitle mode: one full utterance per caption.
+    batch: bool,
+    batch-total: int,
+    batch-done: int,
+    batch-success: int,
+    batch-skipped: int,
+    batch-failed: int,
+    batch-too-long: int,
     /// 0..1: where the read surely is.
     progress: float,
     /// Where the step under way leaves the bar, 0..1.
@@ -257,6 +265,8 @@ export component SpeechDialog inherits Modal {
     /// to cut a string at an offset.
     pure callback insert-tag(text: string, tag: string, at: int) -> string;
     callback begin();
+    callback batch-begin();
+    callback batch-retry-failed();
     callback cancel();
     /// The sample kept as a voice of the user's own: its name typed, a
     /// picture asked for, the save itself.
@@ -315,7 +325,36 @@ export component SpeechDialog inherits Modal {
     }
 
     VerticalLayout {
-        if !root.running: DialogSection {
+        if root.data.batch: Rectangle {
+            height: 76px;
+            background: Theme.well;
+            border-radius: Theme.r;
+            VerticalLayout {
+                padding: 12px;
+                spacing: 6px;
+                Text {
+                    text: "批次 TTS｜" + root.data.batch-total + " 段字幕";
+                    color: Theme.fg;
+                    font-size: Theme.fs-lg;
+                    font-weight: Theme.weight-title;
+                }
+                Text {
+                    text: "已處理 " + root.data.batch-done + " / " + root.data.batch-total
+                        + "　成功 " + root.data.batch-success
+                        + "　跳過 " + root.data.batch-skipped
+                        + "　失敗 " + root.data.batch-failed;
+                    color: Theme.fg-muted;
+                    font-size: Theme.fs-sm;
+                }
+                Text {
+                    text: "完整句朗讀｜同一音色｜音檔依字幕開始時間排列";
+                    color: Theme.fg-dim;
+                    font-size: Theme.fs-sm;
+                }
+            }
+        }
+
+        if !root.running && !root.data.batch: DialogSection {
             first: true;
             title: I18n.t("common.script");
 
@@ -594,7 +633,7 @@ export component SpeechDialog inherits Modal {
             padding: 14px;
             spacing: 10px;
 
-            if root.data.message != "": Rectangle {
+            if root.data.message != "" && !root.data.batch: Rectangle {
                 border-radius: Theme.r;
                 background: Theme.danger-soft;
 
@@ -620,6 +659,13 @@ export component SpeechDialog inherits Modal {
                         CopyChip { text: root.data.message; }
                     }
                 }
+            }
+
+            if root.data.batch && root.data.message != "": Text {
+                text: root.data.message;
+                color: root.data.batch-failed > 0 ? Theme.danger : Theme.fg-muted;
+                font-size: Theme.fs-sm;
+                wrap: word-wrap;
             }
 
             if root.running: VerticalLayout {
@@ -689,9 +735,25 @@ export component SpeechDialog inherits Modal {
                 primary: true;
                 large: true;
                 glyph: Glyph.volume;
-                label: I18n.t("speech.generateSpeech");
-                enabled: root.data.ready && root.data.text != "" && root.has-reference && root.has-voice;
-                clicked => { root.begin(); }
+                label: root.data.batch
+                    ? "批次生成 " + root.data.batch-total + " 段 TTS"
+                    : I18n.t("speech.generateSpeech");
+                enabled: root.data.ready && (root.data.batch ? root.data.batch-total > 0 : root.data.text != "")
+                    && root.has-reference && root.has-voice;
+                clicked => {
+                    if (root.data.batch) {
+                        root.batch-begin();
+                    } else {
+                        root.begin();
+                    }
+                }
+            }
+            if !root.running && root.data.batch && root.data.batch-failed > 0: Button {
+                block: true;
+                ghost: true;
+                glyph: Glyph.rotate;
+                label: "僅重試 " + root.data.batch-failed + " 段失敗字幕";
+                clicked => { root.batch-retry-failed(); }
             }
         }
     }

@@ -465,6 +465,8 @@ export component App inherits Window {
     /// See SpeechDialog.insert-tag: a string cut Rust does for the sheet.
     pure callback speech-insert-tag(text: string, tag: string, at: int) -> string;
     callback speech-begin();
+    callback speech-batch-begin();
+    callback speech-batch-retry-failed();
     callback speech-cancel();
     callback speech-save-name-edited(name: string);
     callback speech-pick-picture();
@@ -902,6 +904,8 @@ export component App inherits Window {
             sample-changed(index) => { root.speech-sample-changed(index); }
             insert-tag(text, tag, at) => { return root.speech-insert-tag(text, tag, at); }
             begin => { root.speech-begin(); }
+            batch-begin => { root.speech-batch-begin(); }
+            batch-retry-failed => { root.speech-batch-retry-failed(); }
             cancel => { root.speech-cancel(); }
             save-name-edited(name) => { root.speech-save-name-edited(name); }
             pick-picture => { root.speech-pick-picture(); }
