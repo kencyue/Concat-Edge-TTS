@@ -43,7 +43,7 @@ This is a personal modification, not an official Concat release. Original projec
 
 ## Reliability update (2026-11-11)
 
-Microsoft Edge TTS may intermittently return `NoAudioReceived`. **Strict voice mode:** the companion retries only the selected voice, for up to three attempts. The YunJhe selection always uses `zh-TW-YunJheNeural`; HsiaoChen and HsiaoYu are equally fixed to their respective voice IDs. If the upstream service remains unavailable, the request fails clearly rather than silently substituting a different voice or accent. `X-TTS-Voice-Requested` and `X-TTS-Voice-Actual` remain identical; `X-TTS-Fallback` is always `false`. This is a companion-only update and does not require reinstalling the APK.
+Microsoft Edge TTS may intermittently return `NoAudioReceived`. **Strict voice mode:** the companion now makes one complete-utterance attempt, without automatic retries or segmentation. The YunJhe selection always uses `zh-TW-YunJheNeural`; HsiaoChen and HsiaoYu are equally fixed to their respective voice IDs. If the upstream service remains unavailable, the request fails clearly rather than silently substituting a different voice or accent. `X-TTS-Voice-Requested` and `X-TTS-Voice-Actual` remain identical; `X-TTS-Fallback` is always `false`. This is a companion-only update and does not require reinstalling the APK.
 
 
 ## 繁體中文字幕整合版（2026-11-11）
@@ -59,11 +59,11 @@ Microsoft Edge TTS may intermittently return `NoAudioReceived`. **Strict voice m
 - Noto Sans TC 授權 SIL Open Font License，Build CI 由 Google Fonts 官方原始檔產生靜態字重，授權文字隨字型資源內嵌於專案建置樹。
 
 
-## kencat zh2 — 保留原文的同音色分段處理
+## kencat zh2 — 自然語音優先／快速完整句朗讀
 
-* Microsoft Edge TTS 可能對完整句子回傳無音訊。短句「啟動」可以成功朗讀，但某些帶有它的長句卻會失敗，因此不是特定字元造成的。
-* 優先以選定音色整句合成，若連續三次失敗，改以標點分段；若分段仍失敗，再把原文切成更短片段處理。全部採用相同的音色，從不替換人聲、改寫文字或使用同音字。
-* 分段音訊的語調可能不如整句自然。任何片段仍無法以指定音色生成時，明確回報錯誤，不產生不正確的音檔。
-* Android 端會驗證服務回傳的實際音色，防止不同人聲被插入。
-* 手機版素材庫新增「移除素材」按鈕，僅能移除尚未放上任何時間軸的素材，不會刪除手機實體檔案。
-* TTS 音訊仍採用完整的語音長度插入時間軸；若原字幕片段比配音短，會顯示提醒，但不擅自伸長字幕影格或覆蓋其他字幕。
+* POCO 的 TTS helper 使用 Microsoft Edge TTS **只生成完整原句**，絕不拆字、分段拼接、改寫文字或切換音色。
+* 每次生成只做一次雲端請求（15 秒上限）。遇到 `NoAudioReceived` 直接提示重新按「產生語音」，不再自動進行多輪重試。
+* 最近成功的整句配音使用手機記憶體快取（最多約 24 MiB）；同樣文字、音色、語速再產生時可立即返回。重啟 Termux 會清除快取，不存字幕內容到檔案。
+* 台灣中文選擇雲哲，就永遠使用 `zh-TW-YunJheNeural`。Android 端仍驗證實際音色回應標頭。
+* 保留手機素材庫安全移除按鈕、字幕長度提醒及所有既有字幕字型功能。
+* **音檔本身只在成功時保留**；在微軟雲端不穩定時，部分請求可能需要稍後手動重試，無法保證每次都成功。

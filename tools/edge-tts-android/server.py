@@ -26,139 +26,56 @@ MAX_REQUEST = 30_000
 MAX_CHARS = 3_900
 
 
-# Preserve the source text exactly: no aliasing, homophones or voice switches.
-_SAMPLE_RATE = 24000
+# A bounded RAM-only cache avoids repeated online generation when a user
+# reopens/reuses the exact same line, speaker and speed. Nothing is written to
+# storage and no private text is logged.
+from collections import OrderedDict
+from threading import Lock
+
+_CACHE = OrderedDict()
+_CACHE_BYTES = 0
+_CACHE_LIMIT_BYTES = 24 * 1024 * 1024
+_CACHE_LOCK = Lock()
 
 
-def _make_wav(samples):
-    import io
-    import wave
-    with io.BytesIO() as buf:
-        with wave.open(buf, "wb") as wav:
-            wav.setnchannels(1)
-            wav.setsampwidth(2)
-            wav.setframerate(_SAMPLE_RATE)
-            wav.writeframes(samples)
-        return buf.getvalue()
+def cache_get(key):
+    with _CACHE_LOCK:
+        item = _CACHE.get(key)
+        if item is not None:
+            _CACHE.move_to_end(key)
+        return item
 
 
-def _decode_and_trim(mp3_file):
-    """Decode MP3 to 24 kHz PCM, remove dead air around each phoneme."""
-    import array
-    raw = subprocess.run(
-        ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
-         "-i", str(mp3_file), "-f", "s16le", "-ac", "1", "-ar", str(_SAMPLE_RATE), "-"],
-        check=True, timeout=30, capture_output=True,
-    ).stdout
-    if not raw:
-        raise RuntimeError("Edge TTS returned an empty PCM segment")
-    # 10 ms windows, keep 50 ms around the first/last speech sample.
-    audio = array.array("h")
-    audio.frombytes(raw)
-    if not audio:
-        raise RuntimeError("Empty speech segment")
-    block = 240
-    peaks = [max(abs(v) for v in audio[i:i + block])
-             for i in range(0, len(audio), block)]
-    threshold = max(100, int(max(peaks) * 0.018))
-    loud = [i for i, peak in enumerate(peaks) if peak >= threshold]
-    if not loud:
-        raise RuntimeError("Selected voice returned silent audio")
-    first = max(0, (loud[0] - 5) * block)
-    last = min(len(audio), (loud[-1] + 6) * block)
-    return audio[first:last].tobytes()
-
-
-async def _synthesize_piece(text, voice, rate, folder, index, depth=0):
-    """Synthesize exact source substring with the selected voice only.
-
-    Split large phrases further only when Edge TTS returned no audio.
-    Never rewrite a word or change the speaker.
-    """
-    file = Path(folder) / f"phrase-{index}-{depth}.mp3"
-    for attempt in range(2):
-        try:
-            if file.exists():
-                file.unlink()
-            await asyncio.wait_for(
-                edge_tts.Communicate(text, voice, rate=rate).save(str(file)), timeout=35
-            )
-            if not file.exists() or file.stat().st_size == 0:
-                raise NoAudioReceived("No audio in phrase")
-            return _decode_and_trim(file)
-        except (NoAudioReceived, asyncio.TimeoutError) as exc:
-            if attempt < 1:
-                await asyncio.sleep(0.4)
-    if len(text) < 3 or depth >= 4:
-        raise RuntimeError(
-            f"指定音色 {voice} 無法朗讀「{text}」；已保留原文及音色，請稍後重試。"
-        )
-    mid = len(text) // 2
-    first = await _synthesize_piece(text[:mid], voice, rate, folder, index + "L", depth + 1)
-    last = await _synthesize_piece(text[mid:], voice, rate, folder, index + "R", depth + 1)
-    return first + bytes(int(_SAMPLE_RATE * 0.035) * 2) + last
-
-
-async def _fallback_to_phrases(text, selected_voice, rate, folder):
-    """Reconstruct only by ORIGINAL text segments using the same voice.
-
-    Segment at Chinese punctuation first to avoid single-character prosody.
-    If a segment remains unavailable, recursively shorten its boundaries.
-    """
-    import re
-
-    if len(text) > 96:
-        raise RuntimeError("指定音色整句合成失敗，內容過長，請分成較短的句子。")
-    tokens = re.split(r"([，。！？、；：,.!?;:\n])", text)
-    pieces = []
-    pause = bytes(int(_SAMPLE_RATE * 0.11) * 2)
-    for idx, segment in enumerate(tokens):
-        if not segment:
-            continue
-        if re.fullmatch(r"[，。！？、；：,.!?;:\n]", segment):
-            pieces.append(pause)
-        elif segment.isspace():
-            pieces.append(pause)
-        else:
-            pieces.append(await _synthesize_piece(
-                segment, selected_voice, rate, folder, str(idx)
-            ))
-            pieces.append(bytes(int(_SAMPLE_RATE * 0.035) * 2))
-    if not pieces:
-        raise RuntimeError("沒有可朗讀的文字")
-    out = Path(folder) / "reconstructed.wav"
-    out.write_bytes(_make_wav(b"".join(pieces)))
-    logging.warning(
-        "Strict-voice phrase recovery for %d chars using only %s (no text rewrite)",
-        len(text), selected_voice
-    )
-    return out
+def cache_put(key, wav):
+    global _CACHE_BYTES
+    if len(wav) > _CACHE_LIMIT_BYTES:
+        return
+    with _CACHE_LOCK:
+        if key in _CACHE:
+            _CACHE_BYTES -= len(_CACHE.pop(key))
+        _CACHE[key] = wav
+        _CACHE_BYTES += len(wav)
+        while _CACHE_BYTES > _CACHE_LIMIT_BYTES:
+            _, old = _CACHE.popitem(last=False)
+            _CACHE_BYTES -= len(old)
 
 
 async def get_audio(text, requested_voice, voice_id, rate, folder):
-    """Never switch voices or rewrite text; split on phrase boundaries if needed."""
-    attempts = 3
-    for n in range(attempts):
-        output = Path(folder) / f"attempt{n}.mp3"
-        try:
-            await asyncio.wait_for(
-                edge_tts.Communicate(text, requested_voice, rate=rate).save(str(output)),
-                timeout=45.0,
-            )
-            if not output.exists() or output.stat().st_size == 0:
-                raise NoAudioReceived("Audio file is empty")
-            if n > 0:
-                logging.info("Edge TTS same voice recovered on attempt %s", n + 1)
-            return output, requested_voice
-        except (NoAudioReceived, asyncio.TimeoutError) as err:
-            logging.warning("Edge TTS voice %s full phrase attempt %s/%s: %s",
-                            requested_voice, n + 1, attempts, err)
-            if n == attempts - 1:
-                break
-            await asyncio.sleep(0.6 + n * 0.8)
-    # Split only the original text; honor the selected voice.
-    audio = await _fallback_to_phrases(text, requested_voice, rate, folder)
-    return audio, requested_voice
+    """One complete utterance, once, preserving voice, text and natural rhythm."""
+    out = Path(folder) / "full-utterance.mp3"
+    try:
+        await asyncio.wait_for(
+            edge_tts.Communicate(text, requested_voice, rate=rate).save(str(out)),
+            timeout=15.0,
+        )
+        if not out.exists() or out.stat().st_size == 0:
+            raise NoAudioReceived("empty audio file")
+        return out, requested_voice
+    except (NoAudioReceived, asyncio.TimeoutError) as exc:
+        raise RuntimeError(
+            f"Microsoft 雲端音色 {requested_voice} 本次沒有產生完整語音。"
+            "已停止自動拆句與多次重試，請稍後再按「產生語音」。"
+        ) from exc
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -183,7 +100,8 @@ class Handler(BaseHTTPRequestHandler):
                 json.dumps(
                     {"status": "ok", "provider": "Microsoft Edge TTS",
                      "voices": VOICES, "strict_voice": True,
-                     "no_audio_retry": True, "same_voice_phrase_recovery": True},
+                     "no_audio_retry": False, "whole_sentence_only": True,
+                     "cache": "memory"},
                     ensure_ascii=False,
                 ),
                 "application/json; charset=utf-8",
@@ -211,32 +129,37 @@ class Handler(BaseHTTPRequestHandler):
                 return self.respond(400, "Speed must be 0.5-2.0")
             rate = f"{round((speed - 1.0) * 100):+d}%"
 
-            with tempfile.TemporaryDirectory(prefix="concat-edge-") as folder:
-                mp3, actual_voice = asyncio.run(
-                    get_audio(txt, requested_voice, voice_id, rate, folder)
-                )
-                wav = Path(folder) / "speech.wav"
-                if mp3.suffix == ".wav":
-                    wav_bytes = mp3.read_bytes()
-                else:
+            key = (txt, requested_voice, rate)
+            wav_bytes = cache_get(key)
+            hit = wav_bytes is not None
+            if not hit:
+                with tempfile.TemporaryDirectory(prefix="concat-edge-") as folder:
+                    mp3, actual_voice = asyncio.run(
+                        get_audio(txt, requested_voice, voice_id, rate, folder)
+                    )
+                    wav = Path(folder) / "speech.wav"
                     subprocess.run(
                         ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
                          "-y", "-i", str(mp3), "-ar", "24000", "-ac", "1",
                          "-c:a", "pcm_s16le", str(wav)],
-                        check=True, timeout=60, capture_output=True,
+                        check=True, timeout=20, capture_output=True,
                     )
                     wav_bytes = wav.read_bytes()
-                self.respond(
-                    200, wav_bytes, "audio/wav",
-                    extra_headers={
-                        "X-TTS-Voice-Requested": requested_voice,
-                        "X-TTS-Voice-Actual": actual_voice,
-                        "X-TTS-Fallback": str(actual_voice != requested_voice).lower(),
-                    },
-                )
+                    if not wav_bytes.startswith(b"RIFF") or wav_bytes[8:12] != b"WAVE":
+                        raise RuntimeError("Audio conversion did not return a valid WAV")
+                    cache_put(key, wav_bytes)
+            self.respond(
+                200, wav_bytes, "audio/wav",
+                extra_headers={
+                    "X-TTS-Voice-Requested": requested_voice,
+                    "X-TTS-Voice-Actual": requested_voice,
+                    "X-TTS-Fallback": "false",
+                    "X-TTS-Cache": "HIT" if hit else "MISS",
+                },
+            )
             logging.info(
                 "Synthesized %s characters: requested=%s actual=%s speed=%s",
-                len(txt), requested_voice, actual_voice, speed,
+                len(txt), requested_voice, requested_voice, speed,
             )
         except Exception as exc:
             logging.exception("Edge TTS request failed")
