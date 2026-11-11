@@ -62,7 +62,7 @@ Microsoft Edge TTS may intermittently return `NoAudioReceived`. **Strict voice m
 ## kencat zh2 — 自然語音優先／快速完整句朗讀
 
 * POCO 的 TTS helper 使用 Microsoft Edge TTS **只生成完整原句**，絕不拆字、分段拼接、改寫文字或切換音色。
-* 每次生成只做一次雲端請求（15 秒上限）。遇到 `NoAudioReceived` 直接提示重新按「產生語音」，不再自動進行多輪重試。
+* 曉臻、曉雨正常仍只呼叫一次；只有雲哲遇到 `NoAudioReceived`／逾時時，會以相同文字及相同音色最多再重試一次。每次連線最長 6 秒、兩次間隔 0.25 秒；不再拆句、不換人聲。
 * 最近成功的整句配音使用手機記憶體快取（最多約 24 MiB）；同樣文字、音色、語速再產生時可立即返回。重啟 Termux 會清除快取，不存字幕內容到檔案。
 * 台灣中文選擇雲哲，就永遠使用 `zh-TW-YunJheNeural`。Android 端仍驗證實際音色回應標頭。
 * 保留手機素材庫安全移除按鈕、字幕長度提醒及所有既有字幕字型功能。

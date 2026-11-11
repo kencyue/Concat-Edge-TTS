@@ -36,6 +36,19 @@ _CACHE = OrderedDict()
 _CACHE_BYTES = 0
 _CACHE_LIMIT_BYTES = 24 * 1024 * 1024
 _CACHE_LOCK = Lock()
+_METRICS = {"yun_jhe_attempts": 0, "yun_jhe_retry_success": 0,
+            "yun_jhe_no_audio": 0, "yun_jhe_retry_exhausted": 0}
+_METRICS_LOCK = Lock()
+
+
+def _count(name):
+    with _METRICS_LOCK:
+        _METRICS[name] += 1
+
+
+def metrics_snapshot():
+    with _METRICS_LOCK:
+        return dict(_METRICS)
 
 
 def cache_get(key):
@@ -61,21 +74,44 @@ def cache_put(key, wav):
 
 
 async def get_audio(text, requested_voice, voice_id, rate, folder):
-    """One complete utterance, once, preserving voice, text and natural rhythm."""
-    out = Path(folder) / "full-utterance.mp3"
-    try:
-        await asyncio.wait_for(
-            edge_tts.Communicate(text, requested_voice, rate=rate).save(str(out)),
-            timeout=15.0,
-        )
-        if not out.exists() or out.stat().st_size == 0:
-            raise NoAudioReceived("empty audio file")
-        return out, requested_voice
-    except (NoAudioReceived, asyncio.TimeoutError) as exc:
-        raise RuntimeError(
-            f"Microsoft 雲端音色 {requested_voice} 本次沒有產生完整語音。"
-            "已停止自動拆句與多次重試，請稍後再按「產生語音」。"
-        ) from exc
+    """Speak the complete text. YunJhe gets one bounded same-voice retry.
+
+    Microsoft sometimes closes the WebSocket without audio. Never segment
+    text or switch voices: a conditional second whole-sentence request is the
+    only recovery, and only for YunJhe (the flaky voice).
+    """
+    yun_jhe = voice_id == 3000
+    attempts = 2 if yun_jhe else 1
+    for n in range(attempts):
+        out = Path(folder) / f"whole-{n}.mp3"
+        try:
+            if yun_jhe:
+                _count("yun_jhe_attempts")
+            await asyncio.wait_for(
+                edge_tts.Communicate(text, requested_voice, rate=rate).save(str(out)),
+                timeout=6.0,
+            )
+            if not out.exists() or out.stat().st_size == 0:
+                raise NoAudioReceived("empty audio file")
+            if n:
+                _count("yun_jhe_retry_success")
+                logging.info("YunJhe recovered on second complete-utterance request")
+            return out, requested_voice
+        except (NoAudioReceived, asyncio.TimeoutError) as err:
+            if yun_jhe:
+                _count("yun_jhe_no_audio")
+            logging.warning("Edge TTS no audio voice=%s attempt=%d/%d: %s",
+                            requested_voice, n + 1, attempts, type(err).__name__)
+            if n + 1 < attempts:
+                await asyncio.sleep(0.25)
+                continue
+            if yun_jhe:
+                _count("yun_jhe_retry_exhausted")
+            raise RuntimeError(
+                f"Microsoft 雲端音色 {requested_voice} 沒有回傳完整語音。"
+                f"已嘗試 {attempts} 次相同音色，未拆句、未換人聲。請稍後再試。"
+            ) from err
+    raise RuntimeError("Unexpected speech state")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -100,8 +136,9 @@ class Handler(BaseHTTPRequestHandler):
                 json.dumps(
                     {"status": "ok", "provider": "Microsoft Edge TTS",
                      "voices": VOICES, "strict_voice": True,
-                     "no_audio_retry": False, "whole_sentence_only": True,
-                     "cache": "memory"},
+                     "no_audio_retry": "one conditional retry for YunJhe only",
+                     "whole_sentence_only": True, "cache": "memory",
+                     "metrics": metrics_snapshot()},
                     ensure_ascii=False,
                 ),
                 "application/json; charset=utf-8",
