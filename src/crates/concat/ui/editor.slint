@@ -465,6 +465,10 @@ export global Editor {
     callback clip-pressed(id: string, additive: bool, edge: int);
     /// Select all text clips on the selected subtitle's lane, for group edits/moves.
     callback select-text-track();
+    // Phone-only explicit touch handle for moving an existing multi-selection.
+    callback selected-group-drag-start();
+    callback selected-group-dragged(seconds: float);
+    callback selected-group-drag-end();
     /// Open batch TTS for current selected captions, preserving starts.
     callback speech-batch-open();
     /// Save Video Frame As, from the picture's right-click menu: the

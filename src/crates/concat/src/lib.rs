@@ -1185,6 +1185,15 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     editor.on_select_text_track(on_window!(|state| {
         state.select_text_track();
     }));
+    editor.on_selected_group_drag_start(on_window!(|state| {
+        state.selected_group_drag_start();
+    }));
+    editor.on_selected_group_dragged(on_lanes!(|state, seconds: f32| {
+        state.clip_dragged(seconds, 0.0);
+    }));
+    editor.on_selected_group_drag_end(on_window!(|state| {
+        state.clip_released();
+    }));
     editor.on_speech_batch_open(on_window!(|state| {
         state.handle(Msg::Speech(SpeechMsg::OpenBatch));
     }));

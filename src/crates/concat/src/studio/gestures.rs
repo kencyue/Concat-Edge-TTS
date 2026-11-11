@@ -43,6 +43,20 @@ impl Studio {
         );
     }
 
+    /// The phone's explicit multi-selection drag bar. Starting from a
+    /// currently selected clip avoids the long-press/trim-edge ambiguity on
+    /// short caption clips, and preserves the entire selection.
+    pub fn selected_group_drag_start(&mut self) {
+        if self.selection.len() < 2 {
+            self.notify("請先多選至少兩段字幕", true);
+            return;
+        }
+        let Some(id) = self.selection.first().cloned() else {
+            return;
+        };
+        self.clip_pressed(&id, false, -1);
+    }
+
     /// A press resolves the selection before anything moves, so a drag that
     /// starts on an already-selected clip carries the whole set.
     pub fn clip_pressed(&mut self, id: &str, additive: bool, edge: i32) {

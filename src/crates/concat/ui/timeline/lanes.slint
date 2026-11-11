@@ -136,6 +136,7 @@ component Clip inherits Rectangle {
     /// Driven by a finger: a phone. A press is then a tap, a swipe or a
     /// hold - see the gesture below.
     in property <bool> finger: false;
+    in property <bool> multiple-selected: false;
 
     /// A press landed: the caller resolves the selection before any drag.
     callback pressed(additive: bool, edge: int);
@@ -692,6 +693,58 @@ component Clip inherits Rectangle {
             if (touch.held && !touch.lifted) {
                 touch.lifted = true;
                 root.pressed(false, -1);
+            }
+        }
+    }
+
+    // ── phone-only large right-edge duration handle ─────────────────────
+    // A 14px hit test is easily missed with a finger, especially on very
+    // short title cards. This grip is larger, stays on the right edge, and
+    // never activates while multiple clips are selected.
+    if root.finger && root.item.selected && !root.multiple-selected
+        && root.tool == TimelineTool.select && !root.has-transition:
+    Rectangle {
+        x: Math.max(0px, root.width - 17px);
+        y: 0px;
+        width: 30px;
+        height: root.height;
+        background: Theme.accent.with-alpha(0.19);
+        border-width: 1px;
+        border-color: Theme.accent;
+        border-radius: 5px;
+
+        Text {
+            text: "⋮";
+            color: Theme.accent;
+            font-size: 22px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+        trim-touch := TouchArea {
+            mouse-cursor: MouseCursor.ew-resize;
+            property <bool> dragging;
+            property <length> origin-x;
+
+            pointer-event(event) => {
+                if (event.button == PointerEventButton.left
+                    && event.kind == PointerEventKind.down) {
+                    self.dragging = true;
+                    self.origin-x = self.absolute-position.x + self.mouse-x;
+                    root.pressed(false, 1);
+                } else if (event.kind == PointerEventKind.up
+                    || event.kind == PointerEventKind.cancel) {
+                    if (self.dragging) {
+                        self.dragging = false;
+                        root.released();
+                    }
+                }
+            }
+            moved => {
+                if (self.dragging) {
+                    root.dragged(
+                        (self.absolute-position.x + self.mouse-x - self.origin-x)
+                            / root.px-per-second, 0px);
+                }
             }
         }
     }
@@ -1278,6 +1331,7 @@ export component Lanes inherits Rectangle {
     /// floor draws a band and the ruler scrubs where it is pressed, as on
     /// a desk.
     in property <bool> finger: false;
+    in property <int> selected-count: 0;
 
     callback scrubbed(seconds: float);
     /// A ruler diamond dragged from one instant to another.
@@ -1721,6 +1775,7 @@ export component Lanes inherits Rectangle {
             tool: root.tool;
             edge-grab: root.edge-grab;
             finger: root.finger;
+            multiple-selected: root.selected-count > 1;
             // Read back through the lane the clip sits on rather than carried
             // on the clip: locking is a property of the lane, and copying it
             // onto every clip would be one more thing to keep in step.

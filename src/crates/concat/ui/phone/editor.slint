@@ -380,6 +380,54 @@ component SelectChip inherits Rectangle {
     }
 }
 
+/// A handle to move a selected group without hunting tiny title clips.
+/// The pointer is captured by this fixed UI surface while timeline clips
+/// move underneath; the release commits one undo step.
+component GroupDragChip inherits Rectangle {
+    in property <int> count;
+    in property <float> seconds-per-pixel;
+    callback pressed();
+    callback dragged(seconds: float);
+    callback released();
+    width: 158px;
+    height: 38px;
+    border-radius: 19px;
+    background: touch.pressed ? Theme.accent-hover : Theme.accent;
+    Text {
+        text: "↔ 拖動整組 " + root.count + " 段";
+        color: Theme.on-accent;
+        font-size: Theme.fs-sm;
+        font-weight: Theme.weight-title;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        mouse-cursor: MouseCursor.grab;
+        property <bool> active;
+        property <length> from-x;
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down
+                && event.button == PointerEventButton.left) {
+                self.active = true;
+                self.from-x = self.absolute-position.x + self.mouse-x;
+                root.pressed();
+            } else if (event.kind == PointerEventKind.up
+                || event.kind == PointerEventKind.cancel) {
+                if (self.active) {
+                    self.active = false;
+                    root.released();
+                }
+            }
+        }
+        moved => {
+            if (self.active) {
+                root.dragged((self.absolute-position.x + self.mouse-x - self.from-x)
+                    / 1px * root.seconds-per-pixel);
+            }
+        }
+    }
+}
+
 /// Whether a sheet is up in the phone editor, and a way to ask it down:
 /// Android's Back, which the window hears, closes it before it leaves the
 /// project - with Effects open, Back saved and went back to the projects.
@@ -416,6 +464,10 @@ export component PhoneEditor inherits Rectangle {
     /// Tap-to-add multi-selection on Android, replacing Ctrl/Shift.
     /// Turn off selection mode before dragging an already-selected clip.
     property <bool> multi-select-mode: false;
+    // Expand preview to almost full screen without changing the source image.
+    property <bool> preview-expanded: false;
+    // Reject accidental double-taps on Undo, preserving normal history.
+    property <bool> undo-guard: false;
     /// The sheet up is one of the clip's, and goes with the clip.
     property <bool> sheet-needs-clip;
 
@@ -489,11 +541,12 @@ export component PhoneEditor inherits Rectangle {
     // each at a height of its own: the bar and the lanes are measured up
     // from the foot, the top bar and the transport down from the head, and
     // the monitor is what is left between.
-    property <length> top-h: 48px;
+    property <length> top-h: root.preview-expanded ? 0px : 48px;
     property <length> transport-h: 60px;
-    /// A third of the screen, and never less than a ruler and two lanes.
-    property <length> lanes-h: Math.max(170px, root.height * 0.3);
-    property <length> bar-h: 74px;
+    /// Normal editor gives lanes roughly a third; expanded preview hides them.
+    property <length> lanes-h: root.preview-expanded
+        ? 0px : Math.max(170px, root.height * 0.3);
+    property <length> bar-h: root.preview-expanded ? 0px : 74px;
     property <length> lanes-y: root.height - root.bar-h - root.lanes-h;
     property <length> transport-y: root.lanes-y - root.transport-h;
     /// How tall the sheet is when one is up. The bin's is lower: it is a
@@ -503,7 +556,8 @@ export component PhoneEditor inherits Rectangle {
     /// one is up - the monitor shrinks to the room left above the sheet
     /// rather than going under it, so the whole picture stays in view
     /// while a sheet works on it.
-    property <length> monitor-foot: root.sheet != ""
+    property <length> monitor-foot: root.preview-expanded ? root.transport-y
+        : root.sheet != ""
         ? Math.min(root.transport-y, root.height - root.sheet-h)
         : root.transport-y;
     /// The Add bar under the bin while something is picked.
@@ -515,6 +569,7 @@ export component PhoneEditor inherits Rectangle {
         y: 0;
         width: root.width;
         height: root.top-h;
+        visible: !root.preview-expanded;
 
         HorizontalLayout {
             padding-left: 4px;
@@ -711,11 +766,15 @@ export component PhoneEditor inherits Rectangle {
             VerticalLayout {
                 alignment: center;
                 RoundButton {
-                    glyph: Glyph.fit;
-                    label: I18n.t("previewPane.fitFramePane");
+                    glyph: root.preview-expanded ? Glyph.fit : Glyph.maximize;
+                    label: root.preview-expanded ? "回到剪輯" : "放大預覽";
                     size: 36px;
                     icon-size: 16px;
-                    clicked => { monitor.fit-view(); }
+                    clicked => {
+                        root.preview-expanded = !root.preview-expanded;
+                        root.hide();
+                        monitor.fit-view();
+                    }
                 }
             }
             VerticalLayout {
@@ -723,10 +782,15 @@ export component PhoneEditor inherits Rectangle {
                 RoundButton {
                     glyph: Glyph.undo;
                     label: I18n.t("phone.undo");
-                    enabled: Editor.can-undo;
                     size: 36px;
                     icon-size: 17px;
-                    clicked => { Editor.undo(); }
+                    enabled: Editor.can-undo && !root.undo-guard;
+                    clicked => {
+                        if (!root.undo-guard) {
+                            root.undo-guard = true;
+                            Editor.undo();
+                        }
+                    }
                 }
             }
             VerticalLayout {
@@ -779,6 +843,12 @@ export component PhoneEditor inherits Rectangle {
         }
     }
 
+    undo-unlock := Timer {
+        interval: 350ms;
+        running: root.undo-guard;
+        triggered => { root.undo-guard = false; }
+    }
+
     // ── the lanes ────────────────────────────────────────────────────
     //
     // No lane headers: a lane is untyped and its switches are the desk's
@@ -788,6 +858,7 @@ export component PhoneEditor inherits Rectangle {
         y: root.lanes-y;
         width: root.width;
         height: root.lanes-h;
+        visible: !root.preview-expanded;
 
         // The stack scrolls here rather than in Rust, as it does in the
         // timeline pane and for the same reason: it is a property of
@@ -823,7 +894,8 @@ export component PhoneEditor inherits Rectangle {
                 height: parent.height;
 
                 finger: true;
-                edge-grab: 14px;
+                selected-count: Editor.selected-count;
+                edge-grab: 18px;
                 ruler-height: 24px;
                 track-scroll: stack.at;
 
@@ -921,6 +993,21 @@ export component PhoneEditor inherits Rectangle {
                 }
             }
 
+            // Drag the whole current subtitle selection with one finger.
+            // No long-press on a tiny subtitle edge is needed.
+            if Editor.selected-count > 1: GroupDragChip {
+                x: 8px;
+                y: parent.height - 83px;
+                count: Editor.selected-count;
+                seconds-per-pixel: Editor.seconds-per-pixel;
+                pressed => {
+                    root.multi-select-mode = false;
+                    Editor.selected-group-drag-start();
+                }
+                dragged(seconds) => { Editor.selected-group-dragged(seconds); }
+                released => { Editor.selected-group-drag-end(); }
+            }
+
             // The zoom, about the playhead - which is the middle, so the
             // cut grows and shrinks around what is under it.
             HorizontalLayout {
@@ -968,6 +1055,7 @@ export component PhoneEditor inherits Rectangle {
         y: root.height - root.bar-h;
         width: root.width;
         height: root.bar-h;
+        visible: !root.preview-expanded;
 
         Rectangle {
             x: 0;
