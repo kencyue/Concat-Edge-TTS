@@ -43,12 +43,12 @@ This is a personal modification, not an official Concat release. Original projec
 
 ## Reliability update (2026-11-11)
 
-Microsoft Edge TTS may intermittently return NoAudioReceived for particular voices. The companion now retries the requested voice once before falling back. For YunJhe (Taiwan Mandarin male), the fallback is Yunyang (mainland Mandarin male), so the accent may differ. Other voices fall back to another zh-TW female voice. The WAV response carries X-TTS-Voice-Actual and X-TTS-Fallback diagnostic headers; Concat currently ignores these headers, so consult the Termux bridge log to see which voice was actually used.
+Microsoft Edge TTS may intermittently return `NoAudioReceived`. **Strict voice mode:** the companion retries only the selected voice, for up to three attempts. The YunJhe selection always uses `zh-TW-YunJheNeural`; HsiaoChen and HsiaoYu are equally fixed to their respective voice IDs. If the upstream service remains unavailable, the request fails clearly rather than silently substituting a different voice or accent. `X-TTS-Voice-Requested` and `X-TTS-Voice-Actual` remain identical; `X-TTS-Fallback` is always `false`. This is a companion-only update and does not require reinstalling the APK.
 
 
 ## 繁體中文字幕整合版（2026-11-11）
 
-APK 名稱：`Concat-0.2.9-ZH-Subtitles-Edge-TTS.apk`
+正式 APK 名稱：`kencat.apk`，App 名稱：**kencat**
 
 - 套件 ID：`app.concat.zh`。與既有 `app.concat.edge`、官方 `app.concat.editor` 並存，不覆蓋原有專案資料。三個 App 的私人設定與專案目錄彼此獨立。
 - 內附 Noto Sans TC Regular + SemiBold，首次建立的新字幕／文字預設使用 Noto Sans TC。
