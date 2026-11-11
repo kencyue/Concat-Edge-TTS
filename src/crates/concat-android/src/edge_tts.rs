@@ -13,7 +13,7 @@ use msedge_tts::tts::{SpeechConfig, client};
 use std::fs::{self, File};
 use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const MAX_CHARS: usize = 3_900;
@@ -79,9 +79,18 @@ fn request_mp3(text: &str, voice: &'static str, speed: f32) -> Result<Vec<u8>, S
             let _ = sender.send(result);
         })
         .map_err(|e| format!("無法啟動配音工作：{e}"))?;
-    receiver
-        .recv_timeout(TIMEOUT)
-        .map_err(|_| "Edge TTS 等待逾時，請檢查網路後重試".to_owned())?
+    match receiver.recv_timeout(TIMEOUT) {
+        Ok(result) => result,
+        Err(RecvTimeoutError::Timeout) => {
+            Err("Edge TTS 連線或語音傳輸超時，請檢查網路後重試".to_owned())
+        }
+        // A panic in the background thread closes the channel immediately.
+        // Do not misreport it as a network timeout; the caller needs a
+        // meaningful failure and the thread's panic is logged by Rust.
+        Err(RecvTimeoutError::Disconnected) => {
+            Err("Edge TTS 內部配音執行緒異常中止（非網路逾時），請回報開發者".to_owned())
+        }
+    }
 }
 
 struct TemporaryFile(PathBuf);

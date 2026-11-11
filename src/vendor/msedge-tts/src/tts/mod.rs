@@ -228,7 +228,15 @@ fn websocket_connect() -> Result<tungstenite::WebSocket<RustlsStream<std::net::T
 
     let mut roots = rustls::RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    let config = ClientConfig::builder()
+    // The full Android editor enables both rustls crypto backends through
+    // other crates. ClientConfig::builder() panics when neither is installed
+    // as the process default and both crate features are enabled. Choose
+    // the provider explicitly for this connection instead of relying on a
+    // process-wide default (or the dependency graph's feature set).
+    let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+    let config = ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .map_err(|e| Error::Tls(TlsError::Rustls(Box::new(e))))?
         .with_root_certificates(roots)
         .with_no_client_auth();
     let name = ServerName::try_from(host).map_err(|_| Error::Tls(TlsError::InvalidDnsName))?;
