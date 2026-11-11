@@ -61,8 +61,8 @@ fn request_mp3(text: &str, voice: &'static str, speed: f32) -> Result<Vec<u8>, S
         .name("kencat-edge-tts".to_owned())
         .spawn(move || {
             let result = (|| {
-                let mut connection = client::connect()
-                    .map_err(|e| format!("Edge TTS 連線失敗：{e}"))?;
+                let mut connection =
+                    client::connect().map_err(|e| format!("Edge TTS 連線失敗：{e}"))?;
                 let result = connection
                     .synthesize(&utterance, &config)
                     .map_err(|e| format!("Edge TTS 語音生成失敗：{e}"))?;
@@ -96,10 +96,8 @@ fn convert_to_wav(mp3: &[u8], target: &Path) -> Result<(), String> {
         .duration_since(UNIX_EPOCH)
         .map_err(|e| e.to_string())?
         .as_nanos();
-    let source = TemporaryFile(target.with_extension(format!(
-        "tts-{}-{unique}.mp3",
-        std::process::id()
-    )));
+    let source =
+        TemporaryFile(target.with_extension(format!("tts-{}-{unique}.mp3", std::process::id())));
     fs::write(&source.0, mp3).map_err(|e| format!("無法儲存暫存語音：{e}"))?;
     let options = AudioOptions {
         rate: SAMPLE_RATE,
@@ -107,13 +105,11 @@ fn convert_to_wav(mp3: &[u8], target: &Path) -> Result<(), String> {
         format: SampleFormat::I16,
         ..AudioOptions::default()
     };
-    let mut decoder = AudioDecoder::open(&source.0, &options)
-        .map_err(|e| format!("無法開啟語音解碼器：{e}"))?;
+    let mut decoder =
+        AudioDecoder::open(&source.0, &options).map_err(|e| format!("無法開啟語音解碼器：{e}"))?;
 
-    let temp = TemporaryFile(target.with_extension(format!(
-        "tts-{}-{unique}.wav",
-        std::process::id()
-    )));
+    let temp =
+        TemporaryFile(target.with_extension(format!("tts-{}-{unique}.wav", std::process::id())));
     let mut file = File::create(&temp.0).map_err(|e| format!("無法建立 WAV：{e}"))?;
     file.write_all(&[0u8; 44]).map_err(|e| e.to_string())?;
     let mut count = 0usize;
