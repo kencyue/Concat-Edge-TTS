@@ -41,7 +41,7 @@ jobs:
           # Avoid Android platform-verifier's separate Kotlin JNI/AAR dependency.
           t=t.replace('    "rustls-platform-verifier",\n', '', 1)
           assert t.count('    "rustls-platform-verifier",\n')==2, 'Unexpected features in upstream Cargo.toml'
-          t+='\\n[dependencies.webpki-roots]\\nversion = "0.26.11"\\n'
+          t+='\n[dependencies.webpki-roots]\nversion = "0.26.11"\n'
           cargo.write_text(t)
           mod=Path('src/vendor/msedge-tts/src/tts/mod.rs')
           s=mod.read_text().replace('\r\n', '\n')
