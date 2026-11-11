@@ -44,3 +44,16 @@ This is a personal modification, not an official Concat release. Original projec
 ## Reliability update (2026-11-11)
 
 Microsoft Edge TTS may intermittently return NoAudioReceived for particular voices. The companion now retries the requested voice once before falling back. For YunJhe (Taiwan Mandarin male), the fallback is Yunyang (mainland Mandarin male), so the accent may differ. Other voices fall back to another zh-TW female voice. The WAV response carries X-TTS-Voice-Actual and X-TTS-Fallback diagnostic headers; Concat currently ignores these headers, so consult the Termux bridge log to see which voice was actually used.
+
+
+## 繁體中文字幕整合版（2026-11-11）
+
+APK 名稱：`Concat-0.2.9-ZH-Subtitles-Edge-TTS.apk`
+
+- 套件 ID：`app.concat.zh`。與既有 `app.concat.edge`、官方 `app.concat.editor` 並存，不覆蓋原有專案資料。三個 App 的私人設定與專案目錄彼此獨立。
+- 內附 Noto Sans TC Regular + SemiBold，首次建立的新字幕／文字預設使用 Noto Sans TC。
+- 文字面板新增 **同軌字幕全部套用此字型**：選取字幕、選字型、點按一次；只變更同一時間軸軌道中的文字片段字型，保留內容、時間、大小、顏色、陰影等，可一次復原。
+- 首次開啟時將 Whisper 預設設為 Base (Multilingual)（模型代碼 `base`），字幕辨識語言設為中文（`zh`）。模型 **不包含在 APK 中**；App 啟動後首次下載約 148 MB，後續離線辨識。為免超出數據額度，首次建議 Wi-Fi 連線。
+- TTS 仍為 Microsoft Edge TTS（雲哲、曉臻、曉雨），需要原先已配置的 Termux 本機橋接服務 `127.0.0.1:18729` 和 Internet。
+- Whisper 可辨識中文但 **不保證輸出繁體字**；Noto Sans TC 是字型，不是簡繁轉換器。本版本沒有聲稱已加入簡轉繁功能。
+- Noto Sans TC 授權 SIL Open Font License，Build CI 由 Google Fonts 官方原始檔產生靜態字重，授權文字隨字型資源內嵌於專案建置樹。
