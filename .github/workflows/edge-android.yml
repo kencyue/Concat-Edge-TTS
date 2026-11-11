@@ -3,7 +3,7 @@ name: Build kencat with Chinese captions and Microsoft TTS
 on:
   workflow_dispatch:
   push:
-    branches: [edge-tts]
+    branches: [edge-tts, feature/standalone-edge-tts]
     paths:
       - ".github/workflows/edge-android.yml"
       - "src/**"
