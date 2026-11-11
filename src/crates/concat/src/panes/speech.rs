@@ -687,11 +687,22 @@ impl SpeechPane {
                 self.text.clear();
                 let total = batch.queue.len();
                 let failure_count = batch.failed.len();
+                // A count alone hides whether the network, the decoder, the
+                // output path or project validation actually failed. Keep a
+                // copyable first error in the dialog for on-device diagnosis.
+                let first_reason = batch
+                    .failed
+                    .first()
+                    .map(|(_, why)| why.chars().take(360).collect::<String>());
                 self.message = format!(
-                    "批次完成 {total} 段：成功 {}、已配音跳過 {}、失敗 {failure_count}、配音超過字幕長度 {}。{}",
+                    "批次完成 {total} 段：成功 {}、已配音跳過 {}、失敗 {failure_count}、配音超過字幕長度 {}。{}{}",
                     batch.success,
                     batch.skipped,
                     batch.too_long,
+                    first_reason
+                        .as_deref()
+                        .map(|reason| format!("\n首筆失敗原因：{reason}。"))
+                        .unwrap_or_default(),
                     if failure_count > 0 {
                         "可按「重試失敗字幕」。"
                     } else {
@@ -727,6 +738,8 @@ impl SpeechPane {
             let reason = self.message.clone();
             if let Some(batch) = self.batch.as_mut() {
                 let line = batch.queue[batch.cursor].clone();
+                log::warn!("批次 TTS 驗證第 {} 筆失敗：{}", batch.cursor + 1, reason);
+                self.message = format!("第 {} 筆驗證失敗：{}", batch.cursor + 1, reason);
                 batch.failed.push((line, reason));
                 batch.cursor += 1;
             }
@@ -799,7 +812,11 @@ impl SpeechPane {
                         .push((line, "配音已產生，但無法匯入素材庫".into()));
                 }
             }
-            Err(error) => batch.failed.push((line, error)),
+            Err(error) => {
+                log::warn!("批次 TTS 第 {} 筆失敗：{}", batch.cursor + 1, error);
+                self.message = format!("第 {} 筆失敗：{}", batch.cursor + 1, error);
+                batch.failed.push((line, error));
+            }
         }
         if let Some(batch) = self.batch.as_mut() {
             batch.cursor += 1;
