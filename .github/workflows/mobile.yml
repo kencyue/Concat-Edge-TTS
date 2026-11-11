@@ -150,6 +150,16 @@ jobs:
       # Restored and saved as two steps rather than one, so the FFmpeg
       # build is kept the moment it finishes, whatever happens to the Rust
       # build after it.
+      # kencat's Chinese captions use SIL OFL Noto Sans TC fonts generated
+      # in CI; these files are intentionally absent from the Git checkout.
+      - name: Prepare traditional Chinese caption fonts
+        run: |
+          python3 -m venv "$RUNNER_TEMP/kencat-fonttools"
+          "$RUNNER_TEMP/kencat-fonttools/bin/pip" install --disable-pip-version-check fonttools
+          "$RUNNER_TEMP/kencat-fonttools/bin/python" tools/edge-tts-android/prepare_fonts.py
+          test -s src/crates/concat-text/fonts/NotoSansTC-Regular.ttf
+          test -s src/crates/concat-text/fonts/NotoSansTC-SemiBold.ttf
+
       - name: FFmpeg for Android (cached)
         id: ffmpeg
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
