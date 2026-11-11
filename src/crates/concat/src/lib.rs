@@ -1179,6 +1179,9 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                                       edge: i32| {
         state.clip_pressed(id.as_str(), additive, edge);
     }));
+    editor.on_select_text_track(on_window!(|state| {
+        state.select_text_track();
+    }));
     editor.on_clip_split(on_lanes!(|state, id: SharedString, seconds: f32| {
         state.split_clip_at(&id, seconds);
     }));

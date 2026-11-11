@@ -461,6 +461,8 @@ export global Editor {
     /// not in the workspace (#490).
     callback key-mark-opened();
     callback clip-pressed(id: string, additive: bool, edge: int);
+    /// Select all text clips on the selected subtitle's lane, for group edits/moves.
+    callback select-text-track();
     /// Save Video Frame As, from the picture's right-click menu: the
     /// frame at the playhead, at the output's size, as a PNG.
     callback save-frame();

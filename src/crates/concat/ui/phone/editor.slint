@@ -352,6 +352,34 @@ component LaneChip inherits Rectangle {
     }
 }
 
+/// Explicit phone multi-select control, always visible above the timeline.
+component SelectChip inherits Rectangle {
+    in property <string> label;
+    in property <bool> active: false;
+    callback clicked();
+    width: 80px;
+    height: 34px;
+    border-radius: 17px;
+    background: root.active ? Theme.accent : (touch.pressed ? Theme.field-active : Theme.raised);
+    border-width: 1px;
+    border-color: root.active ? Theme.accent : Theme.line-strong;
+
+    Text {
+        x: 4px;
+        width: parent.width - 8px;
+        height: parent.height;
+        text: root.label;
+        color: root.active ? Theme.on-accent : Theme.fg;
+        font-size: Theme.fs-sm;
+        font-weight: Theme.weight-title;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
 /// Whether a sheet is up in the phone editor, and a way to ask it down:
 /// Android's Back, which the window hears, closes it before it leaves the
 /// project - with Effects open, Back saved and went back to the projects.
@@ -385,6 +413,9 @@ export component PhoneEditor inherits Rectangle {
     /// The Media sheet was opened from the lanes' plus: Add goes after the
     /// main lane's last clip rather than at the playhead.
     property <bool> media-at-end;
+    /// Tap-to-add multi-selection on Android, replacing Ctrl/Shift.
+    /// Turn off selection mode before dragging an already-selected clip.
+    property <bool> multi-select-mode: false;
     /// The sheet up is one of the clip's, and goes with the clip.
     property <bool> sheet-needs-clip;
 
@@ -820,7 +851,7 @@ export component PhoneEditor inherits Rectangle {
                 floor-pressed => { Editor.blur(); }
                 clip-pressed(id, additive, edge) => {
                     Editor.blur();
-                    Editor.clip-pressed(id, additive, edge);
+                    Editor.clip-pressed(id, additive || root.multi-select-mode, edge);
                 }
                 clip-dragged(seconds, pixels) => { Editor.clip-dragged(seconds, pixels); }
                 clip-released => { Editor.clip-released(); }
@@ -895,6 +926,24 @@ export component PhoneEditor inherits Rectangle {
                 height: 34px;
                 spacing: 6px;
 
+                // Phone multi-selection: tap 多選, tap desired captions, tap
+                // 完成選取, then long-press one selected caption to move all.
+                SelectChip {
+                    label: root.multi-select-mode ? "完成選取" : "多選";
+                    active: root.multi-select-mode;
+                    clicked => {
+                        root.multi-select-mode = !root.multi-select-mode;
+                        root.hide();
+                    }
+                }
+                if root.is-text: SelectChip {
+                    label: "全選本軌";
+                    clicked => {
+                        Editor.select-text-track();
+                        root.multi-select-mode = false;
+                        root.hide();
+                    }
+                }
                 LaneChip {
                     glyph: Glyph.minus;
                     label: I18n.t("common.zoomOut");

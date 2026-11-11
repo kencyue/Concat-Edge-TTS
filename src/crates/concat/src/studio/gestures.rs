@@ -7,6 +7,42 @@ use super::*;
 impl Studio {
     // ── gestures ──
 
+    /// Select every unlocked subtitle/title on the selected text track.
+    /// The phone UI can then move them as a group by grabbing any selected
+    /// clip; avoids requiring a hardware keyboard for Ctrl/Shift selection.
+    pub fn select_text_track(&mut self) {
+        self.flush_commit();
+        let source_track = self.selection.iter().find_map(|id| {
+            let clip = self.clip(id)?;
+            (clip.kind == model::ClipKind::Text).then(|| clip.track_id.clone())
+        });
+        let Some(track_id) = source_track else {
+            self.notify("請先選取一段字幕，再按「全選本軌」", true);
+            return;
+        };
+        if self.locked(&track_id) {
+            self.notify("字幕軌已鎖定，無法移動", true);
+            return;
+        }
+        let clips: Vec<String> = self
+            .timeline()
+            .clips
+            .iter()
+            .filter(|clip| clip.track_id == track_id && clip.kind == model::ClipKind::Text)
+            .map(|clip| clip.id.clone())
+            .collect();
+        if clips.is_empty() {
+            self.notify("這條字幕軌沒有文字片段", true);
+            return;
+        }
+        let count = clips.len();
+        self.selection = clips;
+        self.notify(
+            &format!("已選取 {count} 段字幕；長按其中一段即可整組移動"),
+            false,
+        );
+    }
+
     /// A press resolves the selection before anything moves, so a drag that
     /// starts on an already-selected clip carries the whole set.
     pub fn clip_pressed(&mut self, id: &str, additive: bool, edge: i32) {
