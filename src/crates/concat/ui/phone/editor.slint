@@ -442,6 +442,10 @@ export component PhoneEditor inherits Rectangle {
     }
 
     function show(name: string, needs-clip: bool) {
+        // Leaving touch multi-select mode when opening a tool prevents
+        // subsequent clip taps from silently accumulating mixed selections.
+        // Keep the current selection itself for batch text/TTS tools.
+        root.multi-select-mode = false;
         root.sheet = name;
         root.sheet-needs-clip = needs-clip;
     }
