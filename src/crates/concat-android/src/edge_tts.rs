@@ -5,6 +5,8 @@
 //! bridge or external executable). Only narration text is sent to Microsoft;
 //! source media and projects remain on the phone. Microsoft's unofficial
 //! read-aloud protocol can change or become unavailable without notice.
+//! TLS certificates use a bundled WebPKI trust store from the pinned
+//! msedge-tts adaptation; there is no Android Kotlin verifier dependency.
 
 use concat_media::samples::{AudioDecoder, AudioOptions, SampleFormat};
 use msedge_tts::tts::{SpeechConfig, client};
