@@ -79,6 +79,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
+      - name: Generate Noto Sans TC static fonts for native compilation
+        run: |
+          python3 -m venv "$RUNNER_TEMP/kencat-fonttools"
+          "$RUNNER_TEMP/kencat-fonttools/bin/pip" install --disable-pip-version-check fonttools
+          "$RUNNER_TEMP/kencat-fonttools/bin/python" tools/edge-tts-android/prepare_fonts.py
+          test -s src/crates/concat-text/fonts/NotoSansTC-Regular.ttf
+          test -s src/crates/concat-text/fonts/NotoSansTC-SemiBold.ttf
       # The toolchain src/rust-toolchain.toml pins, installed by name: every
       # cargo command below runs from src/, where the pin applies, so a
       # stable installed here would only be fetched and left.
@@ -259,6 +266,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
+      - name: Generate caption fonts on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          python3 -m venv "$RUNNER_TEMP/kencat-fonttools"
+          "$RUNNER_TEMP/kencat-fonttools/bin/pip" install --disable-pip-version-check fonttools
+          "$RUNNER_TEMP/kencat-fonttools/bin/python" tools/edge-tts-android/prepare_fonts.py
+      - name: Generate caption fonts on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check fonttools
+          python tools/edge-tts-android/prepare_fonts.py
       - name: The pinned toolchain
         id: toolchain
         shell: bash
