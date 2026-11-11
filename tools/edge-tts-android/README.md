@@ -5,7 +5,7 @@ This personal fork adds an **online** Microsoft Edge TTS voice provider to Conca
 * Voices: 雲哲 (3000), 曉臻 (3001), 曉雨 (3002)
 * Result: 24 kHz mono PCM WAV placed into Concat's project audio folder
 * Compatible with the existing timeline import workflow
-* Requires a local Termux helper running at **127.0.0.1:18729** and internet access
+* Requires an internet connection only. Current builds embed the native TTS client without a local server or Termux
 * Concat itself does not send videos or project files to Microsoft; **the text you request to synthesize is sent to Microsoft**.
 * This Edge TTS route is unofficial, may change without notice, and is distinct from an Azure Speech subscription.
 * Android application id is `app.concat.edge`: installs **alongside** the original `app.concat.editor`, preserving the original app's data. Project folders are separate unless you import them.
