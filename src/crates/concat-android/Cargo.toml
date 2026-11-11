@@ -43,6 +43,8 @@ android-build = "0.1"
 # emulator) and the manifest below into an APK. The runtime libraries come
 # from scripts/android-libs.sh.
 [package.metadata.android]
+version_code = 16777738
+version_name = "0.2.9-zh2"
 package = "app.concat.zh"
 apk_name = "kencat"
 build_targets = ["aarch64-linux-android"]

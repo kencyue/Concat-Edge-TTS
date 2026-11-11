@@ -26,12 +26,115 @@ MAX_REQUEST = 30_000
 MAX_CHARS = 3_900
 
 
-async def get_audio(text, requested_voice, voice_id, rate, folder):
-    """Strict voice identity: never substitute another voice, even on failure.
+# Only these phonetic aliases are used when the ORIGINAL character is
+# rejected by Microsoft. They are homophones for Taiwan Mandarin.
+# The user's actual title/caption text is never altered.
+HOMOPHONES = {"啟": "起", "啓": "起"}
+_SAMPLE_RATE = 24000
+_SINGLE_CHAR_CACHE = {}
 
-    Microsoft Edge TTS occasionally returns no audio. Retry only the selected
-    voice three times in total; propagate an error if it remains unavailable.
+
+def _make_wav(samples):
+    import io
+    import wave
+    with io.BytesIO() as buf:
+        with wave.open(buf, "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(_SAMPLE_RATE)
+            wav.writeframes(samples)
+        return buf.getvalue()
+
+
+def _decode_and_trim(mp3_file):
+    """Decode MP3 to 24 kHz PCM, remove dead air around each phoneme."""
+    import array
+    raw = subprocess.run(
+        ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+         "-i", str(mp3_file), "-f", "s16le", "-ac", "1", "-ar", str(_SAMPLE_RATE), "-"],
+        check=True, timeout=30, capture_output=True,
+    ).stdout
+    if not raw:
+        raise RuntimeError("Edge TTS returned an empty PCM segment")
+    # 10 ms windows, keep 50 ms around the first/last speech sample.
+    audio = array.array("h")
+    audio.frombytes(raw)
+    if not audio:
+        raise RuntimeError("Empty speech segment")
+    block = 240
+    peaks = [max(abs(v) for v in audio[i:i + block])
+             for i in range(0, len(audio), block)]
+    threshold = max(100, int(max(peaks) * 0.018))
+    loud = [i for i, peak in enumerate(peaks) if peak >= threshold]
+    if not loud:
+        raise RuntimeError("Selected voice returned silent audio")
+    first = max(0, (loud[0] - 5) * block)
+    last = min(len(audio), (loud[-1] + 6) * block)
+    return audio[first:last].tobytes()
+
+
+async def _single_char(char, voice, rate, folder, index):
+    key = (char, voice, rate)
+    if key in _SINGLE_CHAR_CACHE:
+        return _SINGLE_CHAR_CACHE[key]
+    for attempt, candidate in enumerate([char] + ([HOMOPHONES[char]] if char in HOMOPHONES else [])):
+        mp3 = Path(folder) / f"char-{index}-{attempt}.mp3"
+        try:
+            await asyncio.wait_for(
+                edge_tts.Communicate(candidate, voice, rate=rate).save(str(mp3)), timeout=30
+            )
+            if not mp3.exists() or mp3.stat().st_size == 0:
+                raise NoAudioReceived("Empty voice segment")
+            pcm = _decode_and_trim(mp3)
+            if candidate != char:
+                logging.warning("Phonetic alias in same voice: %s -> %s (voice %s)", char, candidate, voice)
+            if len(_SINGLE_CHAR_CACHE) > 256:
+                _SINGLE_CHAR_CACHE.clear()
+            _SINGLE_CHAR_CACHE[key] = pcm
+            return pcm
+        except (NoAudioReceived, asyncio.TimeoutError):
+            if attempt == 0 and char in HOMOPHONES:
+                continue
+            raise RuntimeError(f"雲端語音無法正確朗讀字元「{char}」；未切換音色")
+    raise RuntimeError(f"無法朗讀字元「{char}」")
+
+
+async def _fallback_to_syllables(text, requested_voice, rate, folder):
+    """Last resort: speak individual characters in THE SAME voice, join to WAV.
+
+    Avoids any silent switch to a different Microsoft voice. This is intended
+    for rare short lines with Edge service failures; it cannot imitate the
+    full-sentence prosody, so avoid using it if direct synthesis succeeds.
     """
+    import unicodedata
+    chars = list(text)
+    if len(chars) > 48:
+        raise RuntimeError("原句音色產生失敗，文字過長，無法使用同音色分段模式")
+    parts = []
+    # 30-50 ms gaps smooth out separately synthesized syllables.
+    tiny_gap = bytes(int(_SAMPLE_RATE * 0.035) * 2)
+    pause = bytes(int(_SAMPLE_RATE * 0.12) * 2)
+    for i, char in enumerate(chars):
+        if char.isspace():
+            parts.append(tiny_gap)
+        elif unicodedata.category(char).startswith("P"):
+            parts.append(pause)
+        else:
+            parts.append(await _single_char(char, requested_voice, rate, folder, i))
+            parts.append(tiny_gap)
+    if not parts:
+        raise RuntimeError("分段語音無有效字元")
+    out = Path(folder) / "reconstructed.wav"
+    out.write_bytes(_make_wav(b"".join(parts)))
+    logging.warning(
+        "Edge TTS full phrase failed; reconstructed %s characters using ONLY %s",
+        len(chars), requested_voice,
+    )
+    return out
+
+
+async def get_audio(text, requested_voice, voice_id, rate, folder):
+    """Never switch voices; if the full phrase fails, salvage via syllables."""
     attempts = 3
     for n in range(attempts):
         output = Path(folder) / f"attempt{n}.mp3"
@@ -43,22 +146,17 @@ async def get_audio(text, requested_voice, voice_id, rate, folder):
             if not output.exists() or output.stat().st_size == 0:
                 raise NoAudioReceived("Audio file is empty")
             if n > 0:
-                logging.info(
-                    "Edge TTS recovered with same voice=%s on attempt=%s",
-                    requested_voice, n + 1,
-                )
+                logging.info("Edge TTS same voice recovered on attempt %s", n + 1)
             return output, requested_voice
         except (NoAudioReceived, asyncio.TimeoutError) as err:
-            logging.warning(
-                "Edge TTS selected voice=%s failed (%s/%s): %s",
-                requested_voice, n + 1, attempts, err,
-            )
+            logging.warning("Edge TTS voice %s full phrase attempt %s/%s: %s",
+                            requested_voice, n + 1, attempts, err)
             if n == attempts - 1:
-                raise RuntimeError(
-                    f"指定音色 {requested_voice} 暫時無法產生語音；"
-                    "已重試三次，未切換成其他音色。請稍後重試。"
-                ) from err
+                break
             await asyncio.sleep(0.6 + n * 0.8)
+    # Reconstruct only short utterances, using the same selected voice.
+    audio = await _fallback_to_syllables(text, requested_voice, rate, folder)
+    return audio, requested_voice
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -83,7 +181,7 @@ class Handler(BaseHTTPRequestHandler):
                 json.dumps(
                     {"status": "ok", "provider": "Microsoft Edge TTS",
                      "voices": VOICES, "strict_voice": True,
-                     "no_audio_retry": True},
+                     "no_audio_retry": True, "same_voice_syllable_recovery": True},
                     ensure_ascii=False,
                 ),
                 "application/json; charset=utf-8",
@@ -116,14 +214,18 @@ class Handler(BaseHTTPRequestHandler):
                     get_audio(txt, requested_voice, voice_id, rate, folder)
                 )
                 wav = Path(folder) / "speech.wav"
-                subprocess.run(
-                    ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
-                     "-y", "-i", str(mp3), "-ar", "24000", "-ac", "1",
-                     "-c:a", "pcm_s16le", str(wav)],
-                    check=True, timeout=60, capture_output=True,
-                )
+                if mp3.suffix == ".wav":
+                    wav_bytes = mp3.read_bytes()
+                else:
+                    subprocess.run(
+                        ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+                         "-y", "-i", str(mp3), "-ar", "24000", "-ac", "1",
+                         "-c:a", "pcm_s16le", str(wav)],
+                        check=True, timeout=60, capture_output=True,
+                    )
+                    wav_bytes = wav.read_bytes()
                 self.respond(
-                    200, wav.read_bytes(), "audio/wav",
+                    200, wav_bytes, "audio/wav",
                     extra_headers={
                         "X-TTS-Voice-Requested": requested_voice,
                         "X-TTS-Voice-Actual": actual_voice,

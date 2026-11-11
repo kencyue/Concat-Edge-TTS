@@ -22,7 +22,7 @@ pub fn synthesize(text: &str, output: &Path, speed: f32, voice: i32) -> Result<(
     socket
         .set_write_timeout(Some(Duration::from_secs(10)))
         .map_err(|error| format!("could not set TTS write timeout: {error}"))?;
-    let body = serde_json::json!({"text":text, "voice": voice, "speed": speed}).to_string();
+    let body = serde_json::json!({"text":text, "voice": voice, "speed": speed, "strict_voice": true, "same_voice_recovery": true}).to_string();
     let headers = format!(
         "POST /tts HTTP/1.0\r\nHost: 127.0.0.1:18729\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         body.len()
@@ -48,6 +48,32 @@ pub fn synthesize(text: &str, output: &Path, speed: f32, voice: i32) -> Result<(
             "Microsoft TTS request failed: {}",
             error.chars().take(300).collect::<String>()
         ));
+    }
+    // Never accept an accidental voice substitution even from legacy helpers.
+    let expected_voice = match voice {
+        3000 => "zh-TW-YunJheNeural",
+        3001 => "zh-TW-HsiaoChenNeural",
+        3002 => "zh-TW-HsiaoYuNeural",
+        _ => return Err(format!("Unsupported selected voice id: {voice}")),
+    };
+    let actual_voice = status
+        .lines()
+        .filter_map(|line| line.split_once(':'))
+        .find(|(key, _)| key.eq_ignore_ascii_case("X-TTS-Voice-Actual"))
+        .map(|(_, value)| value.trim())
+        .ok_or("TTS helper did not report its actual voice; refusing unverified speech")?;
+    if actual_voice != expected_voice {
+        return Err(format!(
+            "音色不一致：選擇 {expected_voice}，服務回傳 {actual_voice}。已拒絕混用聲音。"
+        ));
+    }
+    let fallback = status
+        .lines()
+        .filter_map(|line| line.split_once(':'))
+        .find(|(key, _)| key.eq_ignore_ascii_case("X-TTS-Fallback"))
+        .map(|(_, value)| value.trim());
+    if fallback.is_some_and(|value| value.eq_ignore_ascii_case("true")) {
+        return Err("TTS helper attempted a different voice; audio rejected".to_owned());
     }
     if !payload.starts_with(b"RIFF") || payload.get(8..12) != Some(&b"WAVE"[..]) {
         return Err("Microsoft TTS helper did not return a WAV file".to_owned());

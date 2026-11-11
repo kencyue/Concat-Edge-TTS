@@ -57,3 +57,12 @@ Microsoft Edge TTS may intermittently return `NoAudioReceived`. **Strict voice m
 - TTS 仍為 Microsoft Edge TTS（雲哲、曉臻、曉雨），需要原先已配置的 Termux 本機橋接服務 `127.0.0.1:18729` 和 Internet。
 - Whisper 可辨識中文但 **不保證輸出繁體字**；Noto Sans TC 是字型，不是簡繁轉換器。本版本沒有聲稱已加入簡轉繁功能。
 - Noto Sans TC 授權 SIL Open Font License，Build CI 由 Google Fonts 官方原始檔產生靜態字重，授權文字隨字型資源內嵌於專案建置樹。
+
+
+## kencat zh2 — 同一音色的短句補救
+
+* 同一句話可能在 Microsoft Edge TTS 間歇性無音訊（NoAudioReceived）。這不是 Android 或 WAV 格式故障。
+* 正常情況優先整句合成，保留自然語氣。若整句連續三次失敗，短句（最多 48 字元）會切成同一個音色的字音並以 24 kHz WAV 重組；分段補救的語調可能較不連貫。
+* 僅對無法朗讀的「啟／啓」使用同音「起」作為語音輸入，畫面字幕及原文字不變。
+* 絕不切換成其他 Microsoft 音色。App 端也會核對服務回傳的實際音色，若不一致則拒絕匯入音訊。
+* 此版本不依賴新增語音模型，但仍需 Termux helper 與微軟線上 Edge TTS 連線。
