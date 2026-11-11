@@ -138,8 +138,8 @@ fn build_config_message(config: &SpeechConfig) -> tungstenite::Message {
     static SPEECH_CONFIG_HEAD: &str = r#"{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"true"},"outputFormat":""#;
     static SPEECH_CONFIG_TAIL: &str = r#""}}}}"#;
     let speech_config_message = format!(
-        "X-Timestamp:{}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n{}{}{}",
-        chrono::Local::now().to_rfc2822(),
+        "X-Timestamp:{}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n{}{}{}\r\n",
+        chrono::Utc::now().format("%a %b %d %Y %H:%M:%S GMT+0000 (Coordinated Universal Time)"),
         SPEECH_CONFIG_HEAD,
         config.audio_format,
         SPEECH_CONFIG_TAIL
@@ -153,9 +153,9 @@ fn build_ssml_message(text: &str, config: &SpeechConfig) -> tungstenite::Message
         config.voice_name, config.pitch, config.rate, config.volume, text,
     );
     let ssml_message = format!(
-        "X-RequestId:{}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:{}\r\nPath:ssml\r\n\r\n{}",
+        "X-RequestId:{}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:{}Z\r\nPath:ssml\r\n\r\n{}",
         uuid::Uuid::new_v4().simple(),
-        chrono::Local::now().to_rfc2822(),
+        chrono::Utc::now().format("%a %b %d %Y %H:%M:%S GMT+0000 (Coordinated Universal Time)"),
         ssml,
     );
     tungstenite::Message::Text(ssml_message.into())
@@ -187,6 +187,20 @@ fn build_websocket_request() -> tungstenite::Result<tungstenite::handshake::clie
     headers.insert(header::CACHE_CONTROL, "no-cache".parse().unwrap());
     headers.insert(header::USER_AGENT, constants::USER_AGENT.parse().unwrap());
     headers.insert(header::ORIGIN, constants::ORIGIN.parse().unwrap());
+    headers.insert(
+        header::COOKIE,
+        format!(
+            "muid={};",
+            uuid::Uuid::new_v4().simple().to_string().to_uppercase()
+        )
+        .parse()
+        .unwrap(),
+    );
+    headers.insert(header::ACCEPT_LANGUAGE, "en-US,en;q=0.9".parse().unwrap());
+    headers.insert(
+        header::ACCEPT_ENCODING,
+        "gzip, deflate, br, zstd".parse().unwrap(),
+    );
     Ok(request)
 }
 
@@ -198,7 +212,7 @@ type RustlsStream<T> = rustls::StreamOwned<rustls::ClientConnection, T>;
 fn websocket_connect() -> Result<tungstenite::WebSocket<RustlsStream<std::net::TcpStream>>> {
     use rustls::pki_types::ServerName;
     use rustls::{ClientConfig, ClientConnection, StreamOwned};
-    
+
     use std::sync::Arc;
     use tungstenite::{ClientHandshake, Error, HandshakeError, error::*};
 

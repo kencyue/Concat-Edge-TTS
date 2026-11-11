@@ -24,9 +24,9 @@ const TIMEOUT: Duration = Duration::from_secs(42);
 
 fn selected_voice(id: i32) -> Result<&'static str, String> {
     match id {
-        3000 => Ok("zh-TW-YunJheNeural"),
-        3001 => Ok("zh-TW-HsiaoChenNeural"),
-        3002 => Ok("zh-TW-HsiaoYuNeural"),
+        3000 => Ok("Microsoft Server Speech Text to Speech Voice (zh-TW, YunJheNeural)"),
+        3001 => Ok("Microsoft Server Speech Text to Speech Voice (zh-TW, HsiaoChenNeural)"),
+        3002 => Ok("Microsoft Server Speech Text to Speech Voice (zh-TW, HsiaoYuNeural)"),
         _ => Err(format!("不支援的語音編號：{id}")),
     }
 }
@@ -167,6 +167,10 @@ pub fn synthesize(text: &str, output: &Path, speed: f32, id: i32) -> Result<(), 
     let tries = if id == 3000 { 2 } else { 1 };
     let mut last_failure = String::new();
     for attempt in 0..tries {
+        if attempt > 0 {
+            // Avoid retrying instantly into a potentially overloaded voice backend.
+            std::thread::sleep(Duration::from_secs(2));
+        }
         match request_mp3(text, voice, speed) {
             Ok(mp3) => return convert_to_wav(&mp3, output),
             Err(why) => {
@@ -195,7 +199,11 @@ mod tests {
 
     #[test]
     fn voice_ids_are_explicit() {
-        assert!(selected_voice(3000).is_ok());
+        assert!(
+            selected_voice(3000)
+                .unwrap()
+                .contains("(zh-TW, YunJheNeural)")
+        );
         assert!(selected_voice(3001).is_ok());
         assert!(selected_voice(3002).is_ok());
         assert!(selected_voice(3010).is_err());
