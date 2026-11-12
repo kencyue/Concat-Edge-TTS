@@ -1239,7 +1239,6 @@ dependencies = [
  "jni 0.22.4",
  "libc",
  "log",
- "msedge-tts",
  "serde_json",
  "slint",
 ]
@@ -1429,6 +1428,7 @@ dependencies = [
  "concat-media",
  "concat-vision",
  "log",
+ "msedge-tts",
  "ort",
  "serde",
  "serde_json",

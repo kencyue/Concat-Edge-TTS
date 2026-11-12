@@ -203,7 +203,12 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     // crate installs its; iOS runs this crate's binary, so it is here.
     // https://github.com/jub0t/Concat/issues/332
     #[cfg(target_os = "ios")]
-    ios::install();
+    {
+        ios::install();
+        // Match Android: voice IDs 3000/3001/3002 produce narration WAVs
+        // using Edge's native Rust client. No Python/Termux helper required.
+        concat_speech::tts::set_system_voice(Box::new(concat_speech::edge_tts::synthesize));
+    }
 
     // The interface scale: a percent of the display's own, applied once
     // the window is up and kept through moves between monitors; see

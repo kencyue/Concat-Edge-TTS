@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Standalone Edge read-aloud for Android.
+//! Standalone Edge read-aloud for Android and iOS.
 //!
-//! This implementation runs inside the APK (no Termux, Python, localhost
+//! This implementation runs inside the mobile app (no Termux, Python, localhost
 //! bridge or external executable). Only narration text is sent to Microsoft;
 //! source media and projects remain on the phone. Microsoft's unofficial
 //! read-aloud protocol can change or become unavailable without notice.
-//! TLS certificates use a bundled WebPKI trust store from the pinned
-//! msedge-tts adaptation; there is no Android Kotlin verifier dependency.
+//! TLS certificates use the bundled WebPKI trust store from the pinned
+//! msedge-tts adaptation; there is no platform bridge dependency.
 
 use concat_media::samples::{AudioDecoder, AudioOptions, SampleFormat};
 use msedge_tts::tts::{SpeechConfig, client};
