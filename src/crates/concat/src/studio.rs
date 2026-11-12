@@ -1312,7 +1312,12 @@ fn new_title_style(prefs: &crate::prefs::Preferences) -> TextStyle {
     // The look a title was kept as, when one was (see
     // `Studio::use_title_style_for_new`); the bundled face otherwise.
     let base = prefs.title_style.clone().unwrap_or_else(|| TextStyle {
-        font_family: if cfg!(target_os = "android") { "Noto Sans TC" } else { "Hanken Grotesk" }.to_owned(),
+        font_family: if cfg!(target_os = "android") {
+            "Noto Sans TC"
+        } else {
+            "Hanken Grotesk"
+        }
+        .to_owned(),
         font_weight: 600.0,
         ..TextStyle::default()
     });
@@ -2381,6 +2386,8 @@ fn few(names: &[String]) -> String {
 /// What the confirmation sheet can ask about.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Confirm {
+    /// A project folder, its imported media and all of its edits.
+    DeleteProject { path: String, name: String },
     /// Deleting a whole track, and every clip on it.
     RemoveTrack { track_id: String },
     /// Exporting over a file that is already at `path`.

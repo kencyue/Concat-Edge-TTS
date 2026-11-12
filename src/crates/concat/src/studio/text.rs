@@ -12,7 +12,10 @@ impl Studio {
     /// and the app's installed ones, once each, in alphabetical order; then
     /// the system's, likewise, less any already listed.
     pub fn font_families(&self) -> Vec<String> {
-        let mut out = vec![concat_text::BUNDLED_FAMILY.to_owned(), "Noto Sans TC".to_owned()];
+        let mut out = vec![
+            concat_text::BUNDLED_FAMILY.to_owned(),
+            "Noto Sans TC".to_owned(),
+        ];
         let mut own: Vec<String> = self
             .installed_fonts
             .iter()
@@ -283,26 +286,36 @@ impl Studio {
     /// accidentally restyling unrelated titles on other lanes.
     pub fn apply_font_to_track(&mut self) {
         self.flush_commit();
-        let Some(id) = self.sole_selection() else { return; };
-        let Some(clip) = self.clip(&id).filter(|clip| clip.kind == model::ClipKind::Text) else {
+        let Some(id) = self.sole_selection() else {
+            return;
+        };
+        let Some(clip) = self
+            .clip(&id)
+            .filter(|clip| clip.kind == model::ClipKind::Text)
+        else {
             return;
         };
         let track = clip.track_id.clone();
         let Some(family) = clip.text.as_ref().map(|style| style.font_family.clone()) else {
             return;
         };
-        let commands: Vec<Command> = self.timeline().clips.iter()
+        let commands: Vec<Command> = self
+            .timeline()
+            .clips
+            .iter()
             .filter(|clip| clip.track_id == track && clip.kind == model::ClipKind::Text)
             .filter_map(|clip| {
                 let mut style = clip.text.as_ref()?.clone();
-                if style.font_family == family { return None; }
+                if style.font_family == family {
+                    return None;
+                }
                 style.font_family = family.clone();
                 Some(Command::UpdateClip {
                     clip_id: clip.id.clone(),
                     patch: ClipPatch {
                         text: Some(Some(style)),
                         ..ClipPatch::default()
-                    }
+                    },
                 })
             })
             .collect();
@@ -312,7 +325,10 @@ impl Studio {
             return;
         }
         self.apply(Command::Batch { commands });
-        self.notify(&format!("已批次設定 {count} 段字幕／文字為 {family}（可復原）"), false);
+        self.notify(
+            &format!("已批次設定 {count} 段字幕／文字為 {family}（可復原）"),
+            false,
+        );
     }
 
     /// The inspector's gesture is over: what differs between the echo and

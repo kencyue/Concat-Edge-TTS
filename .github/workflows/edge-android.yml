@@ -3,7 +3,7 @@ name: Build kencat with Chinese captions and Microsoft TTS
 on:
   workflow_dispatch:
   push:
-    branches: [edge-tts]
+    branches: [edge-tts, feature/standalone-edge-tts]
     paths:
       - ".github/workflows/edge-android.yml"
       - "src/**"
@@ -28,11 +28,24 @@ jobs:
           rustup toolchain install "$CHANNEL" --profile minimal
           rustup target add aarch64-linux-android --toolchain "$CHANNEL"
           rustup default "$CHANNEL"
-      - name: Install build dependencies
+      # On GitHub-hosted Ubuntu runners the Azure apt mirror can intermittently
+      # stop resolving. Use PyPI manylinux wheels for the only two
+      # build tools we need, avoiding apt's slow mirror fallback/retry cycle.
+      - name: Install build dependencies (no Ubuntu apt mirror)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake libclang-dev
-          cargo install cargo-apk --locked
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/kencat-native-tools"
+          "$RUNNER_TEMP/kencat-native-tools/bin/pip" install --disable-pip-version-check             'cmake>=3.28,<4' 'libclang>=18,<22'
+          export PATH="$RUNNER_TEMP/kencat-native-tools/bin:$PATH"
+          echo "$RUNNER_TEMP/kencat-native-tools/bin" >> "$GITHUB_PATH"
+          cmake --version
+          LIBCLANG_PATH=$(find "$RUNNER_TEMP/kencat-native-tools" -type f -name 'libclang.so*' -printf '%h\n' | head -1)
+          test -n "$LIBCLANG_PATH"
+          echo "LIBCLANG_PATH=$LIBCLANG_PATH" >> "$GITHUB_ENV"
+          echo "Found bindgen libclang in $LIBCLANG_PATH"
+      - uses: taiki-e/cache-cargo-install-action@9ee83daaa7b96a6fab930949ecf1122bba04a389 # v3.0.8
+        with:
+          tool: cargo-apk
       - name: Prepare Noto Sans TC caption fonts (SIL OFL)
         run: |
           python3 -m venv "$RUNNER_TEMP/concat-fonttools"

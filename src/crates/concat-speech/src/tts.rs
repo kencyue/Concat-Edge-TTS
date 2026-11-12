@@ -104,7 +104,7 @@ const KNOWN_MODELS: &[KnownModel] = &[
     KnownModel {
         id: SYSTEM_ID,
         label: "Microsoft Edge TTS (online)",
-        blurb: "Traditional Chinese via Microsoft Edge TTS. No model download. Requires internet and the Termux helper.",
+        blurb: "Traditional Chinese via Microsoft Edge TTS. No model download. Requires internet; works in the APK without Termux.",
         approx_bytes: 0,
     },
 ];

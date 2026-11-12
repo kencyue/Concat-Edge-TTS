@@ -276,6 +276,7 @@ export component App inherits Window {
     callback start-open();
     callback start-open-recent(path: string);
     callback start-forget-recent(path: string);
+    callback start-delete-recent(path: string);
     callback start-reveal-recent(path: string);
     callback start-search-edited(query: string);
     callback start-sort-changed(sort: int);
@@ -762,6 +763,7 @@ export component App inherits Window {
                 open-settings => { root.open-settings(); }
                 open-recent(path) => { root.start-open-recent(path); }
                 forget-recent(path) => { root.start-forget-recent(path); }
+                delete-project(path) => { root.start-delete-recent(path); }
                 reveal-recent(path) => { root.start-reveal-recent(path); }
                 search-edited(query) => { root.start-search-edited(query); }
                 sort-changed(sort) => { root.start-sort-changed(sort); }

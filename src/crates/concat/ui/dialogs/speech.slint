@@ -661,11 +661,24 @@ export component SpeechDialog inherits Modal {
                 }
             }
 
-            if root.data.batch && root.data.message != "": Text {
-                text: root.data.message;
-                color: root.data.batch-failed > 0 ? Theme.danger : Theme.fg-muted;
-                font-size: Theme.fs-sm;
-                wrap: word-wrap;
+            if root.data.batch && root.data.message != "": Rectangle {
+                border-radius: Theme.r;
+                background: root.data.batch-failed > 0 ? Theme.danger-soft : Theme.well;
+                HorizontalLayout {
+                    padding: 10px;
+                    spacing: 8px;
+                    Text {
+                        horizontal-stretch: 1;
+                        text: root.data.message;
+                        color: root.data.batch-failed > 0 ? Theme.danger : Theme.fg-muted;
+                        font-size: Theme.fs-sm;
+                        wrap: word-wrap;
+                    }
+                    VerticalLayout {
+                        alignment: start;
+                        CopyChip { text: root.data.message; }
+                    }
+                }
             }
 
             if root.running: VerticalLayout {

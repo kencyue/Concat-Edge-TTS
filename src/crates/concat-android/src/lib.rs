@@ -528,7 +528,7 @@ fn android_main(app: slint::android::AndroidApp) {
     publisher::install(&app);
     microphone::install(&app);
     links::install(&app);
-    // Register the online Microsoft Edge TTS helper as a phone voice.
+    // Register built-in Edge read-aloud, without a Termux or localhost companion.
     concat_speech::tts::set_system_voice(Box::new(edge_tts::synthesize));
     if let Err(error) = concat::run() {
         log::error!("{error}");

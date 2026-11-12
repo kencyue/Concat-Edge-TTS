@@ -152,3 +152,6 @@ i-slint-renderer-skia = { path = "patches/i-slint-renderer-skia" }
 # (see patches/README.md, and GGML_BACKEND_DL in build-app.yml). 0.15.0
 # exactly; bump it with whisper-rs, re-applying the change.
 whisper-rs-sys = { path = "patches/whisper-rs-sys" }
+
+# Pin a local Android TLS-only adaptation of the MIT/Apache msedge-tts 0.4.1 source.
+msedge-tts = { path = "vendor/msedge-tts" }

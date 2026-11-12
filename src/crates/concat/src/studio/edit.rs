@@ -73,6 +73,13 @@ impl Studio {
     /// The confirmation sheet's answer: go ahead with what it asked about.
     pub fn confirm_accepted(&mut self) {
         match self.confirm.take() {
+            Some(Confirm::DeleteProject { path, .. }) => {
+                match projects::delete_project(&self.host.dirs.config, &path) {
+                    Ok(()) => self.notify(&t("start.projectDeleted"), false),
+                    Err(error) => self.notify(&error, true),
+                }
+                self.recents = projects::recents(&self.host.dirs.config);
+            }
             Some(Confirm::RemoveTrack { track_id }) => {
                 self.apply(Command::RemoveTrack { track_id });
             }
@@ -96,6 +103,12 @@ impl Studio {
             return crate::ui::ConfirmData::default();
         };
         match confirm {
+            Confirm::DeleteProject { path, name } => crate::ui::ConfirmData {
+                open: true,
+                title: t("start.deleteProjectTitle").into(),
+                message: tf("start.deleteProjectMessage", &[name, path]).into(),
+                action: t("common.delete").into(),
+            },
             Confirm::RemoveTrack { track_id } => {
                 let clips = self
                     .timeline()
