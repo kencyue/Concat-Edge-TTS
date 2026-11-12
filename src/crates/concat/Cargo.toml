@@ -89,6 +89,9 @@ libc = "0.2"
 libc = "0.2"
 
 [target.'cfg(target_os = "ios")'.dependencies]
+# Add native Edge TTS to the existing iPhone/iPad Speech settings; the
+# Android activity registers the same voice through concat-speech.
+concat-speech = { workspace = true, features = ["edge-tts"] }
 slint = { version = "1.18", default-features = false, features = [
     "std",
     "backend-winit",

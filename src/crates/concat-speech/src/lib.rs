@@ -5,8 +5,8 @@
 //!
 //! - [`transcribe`] - whisper.cpp, in-process, turns a clip's audio into
 //!   timed caption segments.
-//! - [`tts`] - Chatterbox on the desktop, and the phone's own voice on
-//!   Android, turn typed narration into a WAV in the project folder.
+//! - [`tts`] - Chatterbox on the desktop, and native Edge TTS on Android
+//!   and iOS, turn typed narration into a WAV in the project folder.
 //!
 //! Both download their models on demand into the app's data directory and
 //! never bundle them. Both are one-at-a-time: a [`concat_host::SingleFlight`]
@@ -19,6 +19,9 @@
 
 #[cfg(feature = "chatterbox")]
 pub mod chatterbox;
+/// Native, cross-platform Edge read-aloud on Android and iOS.
+#[cfg(feature = "edge-tts")]
+pub mod edge_tts;
 pub mod transcribe;
 pub mod tts;
 

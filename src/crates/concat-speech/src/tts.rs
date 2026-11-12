@@ -8,9 +8,9 @@
 //! sound of whatever clip is selected, the narrator's own voice from
 //! footage already in the project - closer to a studio voice, at a
 //! gigabyte and a wait. It runs through ONNX Runtime ([`crate::chatterbox`]).
-//! **The phone's voice**, on Android, is the phone's own text-to-speech
-//! engine - Google's, or whichever the phone has - with nothing to
-//! download: the platform crate hands it over through [`set_system_voice`].
+//! **The phone voice**, on Android and iOS, uses native Microsoft Edge
+//! TTS over TLS with no external helper. The platform startup registers the
+//! synthesizer with [`set_system_voice`].
 //!
 //! Three pieces:
 //!
@@ -59,9 +59,9 @@ pub fn family_of(id: &str) -> Family {
     }
 }
 
-/// The phone's text-to-speech engine, as the platform crate hands it over:
+/// The phone's text-to-speech engine, as the platform startup hands it over:
 /// says `text` into a WAV at the path, at a rate where 1 is the voice's
-/// own, and returns once the file is written. Android's, set at start.
+/// own, and returns once the file is written. Registered on Android and iOS.
 pub type SystemVoice = dyn Fn(&str, &Path, f32, i32) -> Result<(), String> + Send + Sync;
 
 static SYSTEM_VOICE: OnceLock<Box<SystemVoice>> = OnceLock::new();
@@ -72,7 +72,7 @@ pub fn set_system_voice(voice: Box<SystemVoice>) {
     let _ = SYSTEM_VOICE.set(voice);
 }
 
-/// Whether this build has a phone's voice to offer.
+/// Whether the running app has registered an operating-system voice provider.
 fn system_voice() -> Option<&'static SystemVoice> {
     SYSTEM_VOICE.get().map(Box::as_ref)
 }
