@@ -82,6 +82,11 @@ on:
       - "docs/**"
       - "scripts/readme/**"
   workflow_dispatch:
+    inputs:
+      ios_only:
+        description: "Build only iPhone/iPad and iOS Simulator (skip Android)"
+        type: boolean
+        default: false
 
 # Keyed by the calling workflow too, so a call from a release never shares
 # a group with a pull request's run. A pull request's run, or a push's, is
@@ -99,6 +104,7 @@ env:
 
 jobs:
   android:
+    if: ${{ !inputs.ios_only }}
     name: Android ${{ matrix.abi }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
