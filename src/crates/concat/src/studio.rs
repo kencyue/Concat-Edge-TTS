@@ -2386,6 +2386,8 @@ fn few(names: &[String]) -> String {
 /// What the confirmation sheet can ask about.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Confirm {
+    /// A project folder, its imported media and all of its edits.
+    DeleteProject { path: String, name: String },
     /// Deleting a whole track, and every clip on it.
     RemoveTrack { track_id: String },
     /// Exporting over a file that is already at `path`.

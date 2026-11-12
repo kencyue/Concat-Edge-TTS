@@ -900,6 +900,7 @@ component PosterCard inherits Pressable {
 
     callback opened();
     callback forgotten();
+    callback deleted-project();
     callback revealed();
 
     property <length> inset: 6px;
@@ -996,6 +997,12 @@ component PosterCard inherits Pressable {
                 clicked => { root.revealed(); }
             }
 
+            if !root.project.missing: PosterAction {
+                glyph: Glyph.trash;
+                label: I18n.t("start.deleteProject");
+                clicked => { root.deleted-project(); }
+            }
+
             PosterAction {
                 glyph: Glyph.close;
                 label: I18n.t("start.removeFromList");
@@ -1045,6 +1052,7 @@ component ProjectsGrid inherits Rectangle {
 
     callback opened(path: string);
     callback forgotten(path: string);
+    callback deleted-project(path: string);
     callback revealed(path: string);
 
     property <length> gap: 16px;
@@ -1069,6 +1077,7 @@ component ProjectsGrid inherits Rectangle {
         can-reveal: root.can-reveal;
         opened => { root.opened(project.path); }
         forgotten => { root.forgotten(project.path); }
+        deleted-project => { root.deleted-project(project.path); }
         revealed => { root.revealed(project.path); }
     }
 }
@@ -1081,6 +1090,7 @@ component ProjectRow inherits Pressable {
 
     callback opened();
     callback forgotten();
+    callback deleted-project();
 
     label: root.project.name;
     radius: Theme.r;
@@ -1156,6 +1166,25 @@ component ProjectRow inherits Pressable {
                 color: Theme.fg-dim;
                 font-size: Theme.fs-sm;
                 overflow: elide;
+            }
+        }
+
+        // Project deletion has its own button and a confirmation dialog.
+        // Removing from the list must never silently destroy the folder.
+        if !root.project.missing: Rectangle {
+            width: 44px;
+
+            Icon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                glyph: Glyph.trash;
+                size: 16px;
+                tint: delete-action.pressed || delete-action.has-hover ? Theme.fg : Theme.fg-dim;
+            }
+
+            delete-action := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.deleted-project(); }
             }
         }
 
@@ -1613,6 +1642,7 @@ component WideHome inherits Rectangle {
     callback open();
     callback open-recent(path: string);
     callback forget-recent(path: string);
+    callback delete-project(path: string);
     callback reveal-recent(path: string);
     callback search-edited(query: string);
     callback sort-changed(sort: int);
@@ -1771,6 +1801,7 @@ component WideHome inherits Rectangle {
                     can-reveal: true;
                     opened(path) => { root.open-recent(path); }
                     forgotten(path) => { root.forget-recent(path); }
+                    deleted-project(path) => { root.delete-project(path); }
                     revealed(path) => { root.reveal-recent(path); }
                 }
 
@@ -1884,6 +1915,7 @@ component NarrowHome inherits Rectangle {
     callback open-settings();
     callback open-recent(path: string);
     callback forget-recent(path: string);
+    callback delete-project(path: string);
     callback search-edited(query: string);
     callback link(name: string);
 
@@ -2003,6 +2035,7 @@ component NarrowHome inherits Rectangle {
                 enabled: !root.busy;
                 opened => { root.open-recent(project.path); }
                 forgotten => { root.forget-recent(project.path); }
+                deleted-project => { root.delete-project(project.path); }
             }
 
             Rectangle { height: 32px; }
@@ -2077,6 +2110,7 @@ export component StartScreen inherits Rectangle {
     callback open();
     callback open-recent(path: string);
     callback forget-recent(path: string);
+    callback delete-project(path: string);
     callback reveal-recent(path: string);
     callback open-settings();
     callback search-edited(query: string);
@@ -2103,6 +2137,7 @@ export component StartScreen inherits Rectangle {
         open => { root.open(); }
         open-recent(path) => { root.open-recent(path); }
         forget-recent(path) => { root.forget-recent(path); }
+        delete-project(path) => { root.delete-project(path); }
         reveal-recent(path) => { root.reveal-recent(path); }
         search-edited(query) => { root.search-edited(query); }
         sort-changed(sort) => { root.sort-changed(sort); }
@@ -2123,6 +2158,7 @@ export component StartScreen inherits Rectangle {
         open-settings => { root.open-settings(); }
         open-recent(path) => { root.open-recent(path); }
         forget-recent(path) => { root.forget-recent(path); }
+        delete-project(path) => { root.delete-project(path); }
         search-edited(query) => { root.search-edited(query); }
         link(name) => { root.link(name); }
     }

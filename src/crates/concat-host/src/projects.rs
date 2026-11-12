@@ -561,6 +561,33 @@ pub fn forget(config: &Path, path: &str) -> Result<(), String> {
     write_recents(config, &entries)
 }
 
+/// Permanently deletes a confirmed, currently listed project and its folder.
+///
+/// The UI must first show a destructive-action confirmation. Validate again
+/// here, before touching the filesystem: never allow arbitrary paths, folder
+/// symlinks or a folder that has lost its project manifest. An app project
+/// cannot be deleted from the launch screen while it is open for editing.
+pub fn delete_project(config: &Path, path: &str) -> Result<(), String> {
+    let root = Path::new(path);
+    if !read_recents(config)
+        .iter()
+        .any(|entry| same_path(&entry.path, path))
+    {
+        return Err("project is not in the recent-projects list".to_owned());
+    }
+    let metadata = std::fs::symlink_metadata(root)
+        .map_err(|error| format!("cannot inspect {}: {error}", root.display()))?;
+    if !metadata.file_type().is_dir() || metadata.file_type().is_symlink() {
+        return Err("refusing to delete a non-directory or symbolic link".to_owned());
+    }
+    if root.parent().is_none() || !is_project(root) {
+        return Err("refusing to delete a folder without a Concat project manifest".to_owned());
+    }
+    std::fs::remove_dir_all(root)
+        .map_err(|error| format!("cannot delete {}: {error}", root.display()))?;
+    forget(config, path)
+}
+
 fn read_recents(config: &Path) -> Vec<ProjectInfo> {
     // A missing or corrupt list is not an error worth showing anyone; it just
     // means there is no history yet.
@@ -684,6 +711,78 @@ mod tests {
         let read: Vec<ProjectInfo> = serde_json::from_str(&list).expect("reads");
         assert_eq!(read[0].canvas, [0, 177, 64, 255]);
         assert_eq!(read[1].canvas, [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn forgotten_project_is_preserved_and_confirmed_delete_frees_its_name() {
+        let workspace = scratch("forget-and-delete");
+        let config = Path::new(&workspace).join("settings");
+        let folder = Path::new(&workspace).join("projects");
+        let info = create(
+            &folder.to_string_lossy(),
+            "yy1",
+            1920,
+            1080,
+            30,
+            1,
+            [0, 0, 0, 255],
+        )
+        .expect("created");
+        let project = Path::new(&info.path);
+        std::fs::create_dir_all(project.join("media")).expect("media directory");
+        std::fs::write(project.join("media/source.mp4"), b"preserve these bytes")
+            .expect("media asset");
+
+        assert!(delete_project(&config, &info.path).is_err());
+        assert!(project.join("media/source.mp4").exists());
+        remember(&config, &info).expect("remember");
+        forget(&config, &info.path).expect("forget from list");
+        assert!(
+            project.join("media/source.mp4").exists(),
+            "forget must not erase files"
+        );
+        assert!(
+            delete_project(&config, &info.path).is_err(),
+            "not listed: no delete"
+        );
+        remember(&config, &open(&info.path).expect("recover existing")).expect("recover");
+        delete_project(&config, &info.path).expect("delete confirmed project");
+        assert!(!project.exists());
+        assert!(list(&config).is_empty());
+        let recreated = create(
+            &folder.to_string_lossy(),
+            "yy1",
+            1920,
+            1080,
+            30,
+            1,
+            [0, 0, 0, 255],
+        )
+        .expect("same project name can be reused");
+        assert!(is_project(Path::new(&recreated.path)));
+        let _ = std::fs::remove_dir_all(&workspace);
+    }
+
+    #[test]
+    fn deletion_does_not_touch_folder_without_project_manifest() {
+        let workspace = scratch("guard-non-project");
+        let config = Path::new(&workspace).join("settings");
+        let folder = Path::new(&workspace).join("ordinary-folder");
+        std::fs::create_dir_all(&folder).expect("folder");
+        let info = ProjectInfo {
+            path: folder.to_string_lossy().into_owned(),
+            name: "folder".to_owned(),
+            width: 1920,
+            height: 1080,
+            rate_num: 30,
+            rate_den: 1,
+            canvas: [0, 0, 0, 255],
+            opened_at: 0,
+        };
+        remember(&config, &info).expect("remember stale item");
+        assert!(delete_project(&config, &info.path).is_err());
+        assert!(folder.exists());
+        let _ = std::fs::remove_dir_all(&workspace);
     }
 
     #[test]

@@ -48,6 +48,8 @@ pub enum StartMsg {
     OpenChosen(PathBuf),
     OpenRecent(String),
     ForgetRecent(String),
+    /// Explicit destructive deletion after a confirmation sheet.
+    DeleteRecent(String),
     /// Show a project's folder in the file manager.
     RevealRecent(String),
     /// What the projects' search field holds now.
@@ -331,6 +333,22 @@ impl StartPane {
                 }
                 studio.recents = projects::recents(&studio.host.dirs.config);
             }
+            StartMsg::DeleteRecent(path) => {
+                if studio.session.is_some() {
+                    studio.notify(&t("start.closeBeforeDelete"), true);
+                } else if let Some(project) = studio
+                    .recents
+                    .iter()
+                    .find(|recent| recent.info.path == path && recent.present)
+                {
+                    studio.confirm = Some(crate::studio::Confirm::DeleteProject {
+                        path: path.clone(),
+                        name: project.info.name.clone(),
+                    });
+                } else {
+                    studio.notify(&t("start.projectNotFound"), true);
+                }
+            }
             StartMsg::RevealRecent(path) => {
                 if let Err(error) = platform::reveal(&path) {
                     studio.notify(&error, true);
@@ -410,6 +428,23 @@ impl StartPane {
         if self.location.trim().is_empty() {
             self.error = t("start.chooseWhereProjectFolder");
             return;
+        }
+        // On Android there is no project-folder picker. When a project was
+        // forgotten (removed only from recents), recover it into the list
+        // instead of trapping its name forever behind a filesystem error.
+        let existing = Path::new(&self.location).join(projects::folder_name(&name));
+        if projects::is_project(&existing) {
+            let path = existing.to_string_lossy();
+            if let Ok(info) = projects::open(&path) {
+                if let Err(error) = projects::remember(&studio.host.dirs.config, &info) {
+                    self.error = error;
+                    return;
+                }
+                studio.recents = projects::recents(&studio.host.dirs.config);
+                self.error = tf("start.projectAlreadyExistsRecovered", &[&name]);
+                self.busy = false;
+                return;
+            }
         }
         let opened = projects::create(&self.location, &name, width, height, num, den, self.canvas)
             .and_then(|info| studio.open_project(info));
