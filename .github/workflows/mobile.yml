@@ -380,6 +380,15 @@ jobs:
           toolchain: ${{ steps.toolchain.outputs.channel }}
           targets: aarch64-apple-ios
 
+      - name: Prepare Traditional Chinese caption fonts (SIL OFL)
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/concat-fonttools"
+          "$RUNNER_TEMP/concat-fonttools/bin/pip" install --disable-pip-version-check fonttools
+          "$RUNNER_TEMP/concat-fonttools/bin/python" tools/edge-tts-android/prepare_fonts.py
+          test -s src/crates/concat-text/fonts/NotoSansTC-Regular.ttf
+          test -s src/crates/concat-text/fonts/NotoSansTC-SemiBold.ttf
+
       - run: brew install cmake
 
       # Restored and saved as two steps rather than one, so the FFmpeg
@@ -483,6 +492,15 @@ jobs:
         with:
           toolchain: ${{ steps.toolchain.outputs.channel }}
           targets: aarch64-apple-ios-sim
+
+      - name: Prepare Traditional Chinese caption fonts (SIL OFL)
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/concat-fonttools"
+          "$RUNNER_TEMP/concat-fonttools/bin/pip" install --disable-pip-version-check fonttools
+          "$RUNNER_TEMP/concat-fonttools/bin/python" tools/edge-tts-android/prepare_fonts.py
+          test -s src/crates/concat-text/fonts/NotoSansTC-Regular.ttf
+          test -s src/crates/concat-text/fonts/NotoSansTC-SemiBold.ttf
 
       - run: brew install cmake
         timeout-minutes: 10
